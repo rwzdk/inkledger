@@ -43,8 +43,30 @@ function addTag() {
   tagInput.value = ''
 }
 
+/** 金额支持算式:纯数字直取,含四则运算符与括号的表达式按白名单安全求值 */
+function evalAmount(raw) {
+  const s = String(raw).trim().replace(/[×x]/gi, '*').replace(/÷/g, '/').replace(/\s+/g, '')
+  if (!s) return NaN
+  if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s)
+  if (!/^[\d+\-*/().]+$/.test(s)) return NaN
+  try {
+    // 字符已全部白名单校验,无标识符与赋值,可安全求值
+    const v = Function(`"use strict";return (${s})`)()
+    return typeof v === 'number' && Number.isFinite(v) ? v : NaN
+  } catch {
+    return NaN
+  }
+}
+/** 失焦时把算式折叠成计算结果,回显给用户确认 */
+function normalizeAmount() {
+  const v = evalAmount(form.value.amount)
+  if (Number.isFinite(v) && /[+\-*/()]/.test(String(form.value.amount))) {
+    form.value.amount = String(Math.round(v * 100) / 100)
+  }
+}
+
 function save() {
-  const amount = parseFloat(form.value.amount)
+  const amount = evalAmount(form.value.amount)
   if (!Number.isFinite(amount) || amount <= 0) { showToast('请输入正确的金额'); return }
   if (form.value.type === 'transfer' && form.value.accountId === form.value.toAccountId) {
     showToast('转出与转入账户不能相同'); return
@@ -95,8 +117,8 @@ function del() {
         <div class="amount-box" :class="{ 'amount-box--in': form.type === 'income' }">
           <span class="amount-box__currency serif">{{ form.type === 'income' ? '＋' : form.type === 'transfer' ? '⇄' : '－' }} ¥</span>
           <input
-            v-model="form.amount" class="amount-box__input num" type="number" inputmode="decimal"
-            step="0.01" min="0" placeholder="0.00" autofocus
+            v-model="form.amount" class="amount-box__input num" type="text" inputmode="decimal"
+            placeholder="0.00 或算式如 12+8" autofocus @blur="normalizeAmount"
           />
         </div>
 

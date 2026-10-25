@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { store, monthSummary, accountById, categoryById } from '../store.js'
+import { store, monthSummary, accountById, categoryById, budgetStatus } from '../store.js'
 import { fmtMoney, monthKey, monthLabel, addMonths, fmtDay, weekLabel, nowDateKey, ACCOUNT_META } from '../lib/format.js'
 import AppIcon from './AppIcon.vue'
 import DataIcon from './DataIcon.vue'
@@ -9,13 +9,22 @@ const emit = defineEmits(['edit'])
 
 const month = ref(monthKey(nowDateKey()))
 const filterAccount = ref('all')
+const filterType = ref('all')
 const keyword = ref('')
 
 const summary = computed(() => monthSummary(month.value))
 
+const budgetRows = computed(() => budgetStatus(month.value))
+const budgetTotal = computed(() => budgetRows.value.reduce(
+  (acc, b) => ({ amount: acc.amount + b.budget, spent: acc.spent + b.spent }),
+  { amount: 0, spent: 0 }
+))
+const budgetPct = (b) => Math.min(100, (b.spent / b.budget) * 100).toFixed(1)
+
 const filtered = computed(() => {
   return store.txs
     .filter((t) => monthKey(t.date) === month.value)
+    .filter((t) => filterType.value === 'all' || t.type === filterType.value)
     .filter((t) => filterAccount.value === 'all'
       || t.accountId === filterAccount.value
       || t.toAccountId === filterAccount.value)
@@ -98,8 +107,37 @@ function accountBadge(t) {
     </div>
   </section>
 
-  <!-- 来源筛选 -->
+  <!-- 月度预算 -->
+  <section v-if="budgetRows.length" class="card budget">
+    <div class="budget__head">
+      <span class="budget__title">月度预算</span>
+      <span class="num budget__sum">已用 {{ fmtMoney(budgetTotal.spent) }} / {{ fmtMoney(budgetTotal.amount) }}</span>
+    </div>
+    <div class="budget__bar">
+      <i :class="{ 'budget__bar--over': budgetTotal.spent > budgetTotal.amount }"
+         :style="{ width: Math.min(100, budgetTotal.spent / budgetTotal.amount * 100).toFixed(1) + '%' }"></i>
+    </div>
+    <div class="budget__cats">
+      <div v-for="b in budgetRows" :key="b.categoryId" class="budget__cat">
+        <span class="budget__cat-icon"><DataIcon :icon="b.icon" :size="13" /></span>
+        <span class="budget__cat-name">{{ b.name }}</span>
+        <div class="budget__cat-bar">
+          <i :class="{ 'budget__bar--over': b.remain < 0 }" :style="{ width: budgetPct(b) + '%' }"></i>
+        </div>
+        <span class="num budget__cat-val" :class="{ 'budget__cat-val--over': b.remain < 0 }">
+          {{ b.remain >= 0 ? '余 ' + fmtMoney(b.remain) : '超 ' + fmtMoney(-b.remain) }}
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 类型 + 来源筛选 -->
   <div class="chips">
+    <button
+      v-for="ft in [['all', '全部'], ['expense', '支出'], ['income', '收入'], ['transfer', '转账']]" :key="ft[0]"
+      class="chip" :class="{ 'chip--on': filterType === ft[0] }" @click="filterType = ft[0]"
+    >{{ ft[1] }}</button>
+    <span class="chips__gap"></span>
     <button class="chip" :class="{ 'chip--on': filterAccount === 'all' }" @click="filterAccount = 'all'">全部来源</button>
     <button
       v-for="a in store.accounts" :key="a.id"
@@ -164,8 +202,25 @@ function accountBadge(t) {
 .overview__item b { font-size: clamp(15px, 2.4vw, 19px); font-weight: 600; }
 .overview__divider { width: 1px; background: var(--gold-line); opacity: 0.5; }
 
+.budget { padding: 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 11px; }
+.budget__head { display: flex; align-items: baseline; justify-content: space-between; }
+.budget__title { font-size: 13px; letter-spacing: 2px; color: var(--text-dim); }
+.budget__sum { font-size: 12.5px; color: var(--text-faint); }
+.budget__bar { height: 8px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
+.budget__bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--gold), var(--gold-deep)); transition: width 0.3s; }
+.budget__bar--over { background: linear-gradient(90deg, var(--ink-red), #b95555) !important; }
+.budget__cats { display: flex; flex-direction: column; gap: 8px; }
+.budget__cat { display: grid; grid-template-columns: 18px 64px 1fr 92px; align-items: center; gap: 8px; }
+.budget__cat-icon { display: flex; color: var(--text-dim); }
+.budget__cat-name { font-size: 12.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.budget__cat-bar { height: 5px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
+.budget__cat-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
+.budget__cat-val { font-size: 12px; text-align: right; color: var(--text-faint); }
+.budget__cat-val--over { color: var(--ink-red); }
+
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
+.chips__gap { flex: none; width: 1px; background: var(--line-strong); margin: 4px 2px; }
 .search-wrap { position: relative; margin: 2px 0 18px; }
 .search-wrap .search { padding-left: 38px; }
 .search-wrap__icon {

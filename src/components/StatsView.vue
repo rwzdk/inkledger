@@ -5,7 +5,7 @@ import { PieChart, LineChart, BarChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { store, txsOfMonth, categoryById, accountById } from '../store.js'
-import { fmtMoney, monthKey, monthLabel, addMonths, nowDateKey, monthRange, ACCOUNT_META } from '../lib/format.js'
+import { fmtMoney, fmtPct, monthKey, monthLabel, addMonths, nowDateKey, monthRange, ACCOUNT_META } from '../lib/format.js'
 
 echarts.use([PieChart, LineChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
@@ -24,6 +24,19 @@ const stats = computed(() => {
     if (t.type === 'expense') expense += t.amount
   }
   return { income, expense, net: income - expense, avg: expense / days, days, start, end }
+})
+
+/** 上月支出与环比(上月为 0 或无数据时不展示) */
+const mom = computed(() => {
+  let last = 0
+  const prevKey = addMonths(month.value, -1)
+  for (const t of txsOfMonth(prevKey)) {
+    if (t.type === 'expense') last += t.amount
+  }
+  if (!last) return null
+  const cur = stats.value.expense
+  const pct = (cur - last) / last
+  return { last, pct }
 })
 
 const byCategory = computed(() => {
@@ -148,7 +161,13 @@ const maxCat = computed(() => topCat.value[0]?.[1] || 1)
   </div>
 
   <section class="tiles">
-    <div class="card tile"><span>总支出</span><b class="num">{{ fmtMoney(stats.expense) }}</b></div>
+    <div class="card tile">
+      <span>总支出</span>
+      <b class="num">{{ fmtMoney(stats.expense) }}</b>
+      <small v-if="mom" class="num tile__mom" :class="mom.pct > 0 ? 'tile__mom--up' : 'tile__mom--down'">
+        {{ mom.pct > 0 ? '▲' : '▼' }} {{ fmtPct(Math.abs(mom.pct)) }} 较上月
+      </small>
+    </div>
     <div class="card tile"><span>总收入</span><b class="num amt-in">+{{ fmtMoney(stats.income) }}</b></div>
     <div class="card tile"><span>结余</span><b class="num" :style="stats.net < 0 ? 'color: var(--ink-red)' : ''">{{ fmtMoney(stats.net) }}</b></div>
     <div class="card tile"><span>日均支出</span><b class="num">{{ fmtMoney(stats.avg) }}</b></div>
@@ -190,6 +209,9 @@ const maxCat = computed(() => topCat.value[0]?.[1] || 1)
 .tile { display: flex; flex-direction: column; gap: 7px; padding: 14px 16px; }
 .tile span { font-size: 12px; color: var(--text-dim); letter-spacing: 2px; }
 .tile b { font-size: 18px; }
+.tile__mom { font-size: 11.5px; color: var(--text-faint); }
+.tile__mom--up { color: var(--ink-red); }
+.tile__mom--down { color: var(--ink-green); }
 
 .chart-card { padding: 10px 6px; }
 .chart { width: 100%; }

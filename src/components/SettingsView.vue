@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import {
-  store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory,
+  store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory, setBudget, budgetOf,
   importFromText, importFromRows, exportJSON, importJSON, clearAll, loadSample, balanceOf,
   syncToGitHub, defaultRepoName
 } from '../store.js'
@@ -101,6 +101,17 @@ function saveCategory() {
   catForm.value = null
 }
 
+/* —— 预算 —— */
+function onBudgetChange(categoryId, e) {
+  setBudget(categoryId, e.target.value)
+  e.target.value = budgetOf(categoryId) || ''
+  showToast(budgetOf(categoryId) ? '预算已保存' : '已清除预算')
+}
+const totalBudget = computed(() => {
+  const sum = store.categories.reduce((s, c) => s + (c.kind === 'expense' ? budgetOf(c.id) : 0), 0)
+  return sum ? fmtMoney(sum) : ''
+})
+
 /* —— 数据管理 —— */
 function downloadExport() {
   const blob = new Blob([exportJSON()], { type: 'application/json' })
@@ -198,6 +209,27 @@ function doClear() {
     <button class="btn upload-block" @click="newCategory">＋ 新增分类</button>
   </section>
 
+  <!-- 预算管理 -->
+  <div class="sec-title">月度预算</div>
+  <section class="card">
+    <p class="hint">为支出分类设置每月额度，首页与统计会展示执行进度；留空或 0 表示不设预算。</p>
+    <div v-for="c in store.categories.filter((c) => c.kind === 'expense')" :key="'b-' + c.id" class="row-line row-line--budget">
+      <span class="row-line__icon"><DataIcon :icon="c.icon" :size="18" /></span>
+      <span class="row-line__body"><b>{{ c.name }}</b></span>
+      <div class="budget-input">
+        <span class="budget-input__unit num">¥</span>
+        <input
+          class="input num" type="number" min="0" step="10" inputmode="decimal"
+          placeholder="—"
+          :value="budgetOf(c.id) || ''"
+          @change="onBudgetChange(c.id, $event)"
+        />
+        <span class="budget-input__unit2">/月</span>
+      </div>
+    </div>
+    <p class="hint budget-sum" v-if="totalBudget">合计月预算 <b class="num">¥{{ totalBudget }}</b></p>
+  </section>
+
   <!-- 数据管理 -->
   <div class="sec-title">数据</div>
   <section class="card">
@@ -219,7 +251,7 @@ function doClear() {
     <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')"><AppIcon name="sun" :size="15" /> 宣纸</button>
   </section>
 
-  <p class="about serif">墨账 InkLedger · v1.2 · 静态部署 · 数据自持</p>
+  <p class="about serif">墨账 InkLedger · v1.3 · 静态部署 · 数据自持</p>
 
   <!-- 账户编辑弹层 -->
   <Teleport to="body">
@@ -305,6 +337,14 @@ function doClear() {
 
 .row-line { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .row-line:last-of-type { border-bottom: none; }
+.row-line--budget { padding: 7px 0; }
+.row-line--budget .row-line__body { flex: 0 0 auto; }
+.budget-input { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.budget-input .input { width: 96px; text-align: right; padding: 6px 8px; }
+.budget-input__unit { color: var(--text-faint); font-size: 13px; }
+.budget-input__unit2 { color: var(--text-faint); font-size: 12px; }
+.budget-sum { margin: 12px 0 0; text-align: right; }
+.budget-sum b { color: var(--gold); font-weight: 600; }
 .row-line__icon {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   display: flex; align-items: center; justify-content: center; font-size: 17px;

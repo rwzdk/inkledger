@@ -73,6 +73,7 @@ function defaultState() {
     txs: [],
     accounts: JSON.parse(JSON.stringify(seedAccounts)),
     categories: JSON.parse(JSON.stringify(seedCategories)),
+    budgets: [],
     settings: {
       theme: 'dark',
       github: { token: '', login: '', repo: '' },
@@ -91,6 +92,7 @@ function load() {
       txs: saved.txs || [],
       accounts: saved.accounts?.length ? saved.accounts : base.accounts,
       categories: saved.categories?.length ? upgradeIcons(saved.categories) : base.categories,
+      budgets: Array.isArray(saved.budgets) ? saved.budgets : [],
       settings: { ...base.settings, ...saved.settings, github: { ...base.settings.github, ...saved.settings?.github } }
     }
   } catch {
@@ -105,6 +107,7 @@ export function persist() {
     txs: store.txs,
     accounts: store.accounts,
     categories: store.categories,
+    budgets: store.budgets,
     settings: store.settings
   }))
 }
@@ -164,7 +167,37 @@ export function removeCategory(id) {
     return false
   }
   store.categories = store.categories.filter((c) => c.id !== id)
+  store.budgets = store.budgets.filter((b) => b.id !== id)
   return true
+}
+
+/* —— 预算:分类月度预算(b.id 即 categoryId,amount 为每月额度) —— */
+export function setBudget(categoryId, amount) {
+  const v = Math.max(0, Math.round((Number(amount) || 0) * 100) / 100)
+  const i = store.budgets.findIndex((b) => b.id === categoryId)
+  if (!v) {
+    if (i >= 0) store.budgets.splice(i, 1)
+    return
+  }
+  const item = { id: categoryId, amount: v, updatedAt: Date.now() }
+  if (i >= 0) store.budgets[i] = item
+  else store.budgets.push(item)
+}
+export const budgetOf = (categoryId) => store.budgets.find((b) => b.id === categoryId)?.amount || 0
+
+/** 某月各分类预算执行情况(按剩余比例升序,最紧张的在前) */
+export function budgetStatus(mKey) {
+  const rows = []
+  for (const b of store.budgets) {
+    const cat = categoryById(b.id)
+    if (!cat || cat.kind !== 'expense') continue
+    let spent = 0
+    for (const t of txsOfMonth(mKey)) {
+      if (t.type === 'expense' && t.categoryId === b.id) spent += t.amount
+    }
+    rows.push({ categoryId: b.id, name: cat.name, icon: cat.icon, budget: b.amount, spent, remain: b.amount - spent })
+  }
+  return rows.sort((a, b) => a.remain / a.budget - b.remain / b.budget)
 }
 
 /* —— 查询 —— */
@@ -228,7 +261,7 @@ export function importFromRows(rows) {
 export function exportJSON() {
   return JSON.stringify({
     app: 'inkledger', version: 1, exportedAt: new Date().toISOString(),
-    txs: store.txs, accounts: store.accounts, categories: store.categories
+    txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets
   }, null, 2)
 }
 export function importJSON(text) {
@@ -237,6 +270,7 @@ export function importJSON(text) {
   store.txs = data.txs
   store.accounts = data.accounts
   store.categories = data.categories?.length ? data.categories : defaultState().categories
+  store.budgets = Array.isArray(data.budgets) ? data.budgets : []
   showToast('数据已导入')
 }
 export function clearAll() {
@@ -244,12 +278,13 @@ export function clearAll() {
   store.txs = []
   store.accounts = base.accounts
   store.categories = base.categories
+  store.budgets = []
   showToast('已清空全部账目')
 }
 
 /* —— 合并（同步用）：按 id 合并，updatedAt 新者胜 —— */
 export function mergeCloud(local, cloud) {
-  if (!cloud) return { txs: local.txs, accounts: local.accounts, categories: local.categories }
+  if (!cloud) return { txs: local.txs, accounts: local.accounts, categories: local.categories, budgets: local.budgets || [] }
   const mergeArr = (a = [], b = []) => {
     const map = new Map()
     for (const item of [...a, ...b]) {
@@ -261,7 +296,8 @@ export function mergeCloud(local, cloud) {
   return {
     txs: mergeArr(local.txs, cloud.txs),
     accounts: mergeArr(local.accounts, cloud.accounts),
-    categories: mergeArr(local.categories, cloud.categories)
+    categories: mergeArr(local.categories, cloud.categories),
+    budgets: mergeArr(local.budgets || [], cloud.budgets || [])
   }
 }
 
@@ -280,16 +316,17 @@ export async function syncToGitHub() {
 
   const cloud = await readData(token, owner, repoName)
   const merged = mergeCloud(
-    { txs: store.txs, accounts: store.accounts, categories: store.categories },
+    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets },
     cloud.data
   )
   store.txs = merged.txs
   store.accounts = merged.accounts
   store.categories = merged.categories
+  store.budgets = merged.budgets
 
   await writeData(token, owner, repoName, {
     app: 'inkledger', version: 1, syncedAt: new Date().toISOString(),
-    txs: merged.txs, accounts: merged.accounts, categories: merged.categories
+    txs: merged.txs, accounts: merged.accounts, categories: merged.categories, budgets: merged.budgets
   }, cloud.sha)
 
   store.settings.github = { token, login: owner, repo: repoName }
@@ -341,5 +378,11 @@ export function loadSample() {
     })
   }
   store.txs.push(...txs)
+  // 演示预算:让首页预算卡片有内容可看
+  const demoBudgets = { '餐饮': 1200, '交通出行': 300, '购物': 500, '居住水电': 600, '娱乐影音': 200 }
+  for (const [name, amount] of Object.entries(demoBudgets)) {
+    const id = store.categories.find((c) => c.name === name)?.id
+    if (id) setBudget(id, amount)
+  }
   showToast(`已生成 ${txs.length} 笔示例账目，可在设置中一键清空`)
 }
