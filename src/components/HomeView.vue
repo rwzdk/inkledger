@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { store, showToast, monthSummary, accountById, categoryById, budgetStatus, upcomingBills, monthlyFixed, payRecurring } from '../store.js'
+import { store, showToast, monthSummary, accountById, categoryById, budgetStatus, upcomingBills, monthlyFixed, payRecurring, contributeGoal } from '../store.js'
 import { fmtMoney, monthKey, monthLabel, addMonths, fmtDay, weekLabel, nowDateKey, dueLabel, daysFromToday, ACCOUNT_META } from '../lib/format.js'
 import AppIcon from './AppIcon.vue'
 import DataIcon from './DataIcon.vue'
@@ -27,6 +27,31 @@ const fixedMonthly = computed(() => monthlyFixed())
 function payBill(id) {
   const tx = payRecurring(id)
   if (tx) showToast(`已入账 ${fmtMoney(tx.amount)} · ${tx.payee}`)
+}
+
+/** 储蓄目标:首页最多展示 3 条,完整管理在设置页 */
+const goals = computed(() => store.goals.slice(0, 3))
+const goalsMore = computed(() => Math.max(0, store.goals.length - 3))
+function goalPct(g) {
+  return Math.min(100, ((Number(g.saved) || 0) / (Number(g.target) || 1)) * 100).toFixed(1)
+}
+/** 按目标月倒推每月需存;仅未来且 ≥1 个月时显示 */
+function goalMonthlyNeed(g) {
+  if (!g.deadline) return null
+  const need = (Number(g.target) || 0) - (Number(g.saved) || 0)
+  if (need <= 0) return null
+  const [y, m] = g.deadline.slice(0, 7).split('-').map(Number)
+  const now = new Date()
+  const months = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1))
+  if (months < 1) return null
+  return { months, per: need / months }
+}
+const goalInputs = ref({})
+function saveGoalContribution(id) {
+  const v = goalInputs.value[id]
+  const g = contributeGoal(id, v)
+  if (g) showToast(`已存入 ${fmtMoney(v)} · ${g.name}`)
+  goalInputs.value[id] = ''
 }
 
 const filtered = computed(() => {
@@ -118,7 +143,7 @@ function accountBadge(t) {
   <!-- 月度预算 -->
   <section v-if="budgetRows.length" class="card budget">
     <div class="budget__head">
-      <span class="budget__title">月度预算</span>
+      <span class="budget__title">月度预算<template v-if="budgetRows.some((b) => b.carryover)"> (含结转)</template></span>
       <span class="num budget__sum">已用 {{ fmtMoney(budgetTotal.spent) }} / {{ fmtMoney(budgetTotal.amount) }}</span>
     </div>
     <div class="budget__bar">
@@ -128,12 +153,36 @@ function accountBadge(t) {
     <div class="budget__cats">
       <div v-for="b in budgetRows" :key="b.categoryId" class="budget__cat">
         <span class="budget__cat-icon"><DataIcon :icon="b.icon" :size="13" /></span>
-        <span class="budget__cat-name">{{ b.name }}</span>
+        <span class="budget__cat-name">{{ b.name }}<i v-if="b.carryover" class="budget__carry" title="信封结转已启用">结转</i></span>
         <div class="budget__cat-bar">
           <i :class="{ 'budget__bar--over': b.remain < 0 }" :style="{ width: budgetPct(b) + '%' }"></i>
         </div>
         <span class="num budget__cat-val" :class="{ 'budget__cat-val--over': b.remain < 0 }">
           {{ b.remain >= 0 ? '余 ' + fmtMoney(b.remain) : '超 ' + fmtMoney(-b.remain) }}
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 储蓄目标 -->
+  <section v-if="goals.length" class="card goals">
+    <div class="goals__head">
+      <span class="goals__title">储蓄目标</span>
+      <span class="goals__hint">单独追踪 · 不计入余额<template v-if="goalsMore"> · 还有 {{ goalsMore }} 条在设置页</template></span>
+    </div>
+    <div v-for="g in goals" :key="g.id" class="goal">
+      <div class="goal__row">
+        <b class="goal__name">{{ g.name }}</b>
+        <span class="num goal__val"><span class="amt-in">{{ fmtMoney(g.saved) }}</span> / {{ fmtMoney(g.target) }}</span>
+      </div>
+      <div class="goal__bar"><i :style="{ width: goalPct(g) + '%' }"></i></div>
+      <div class="goal__row goal__row--sub">
+        <small v-if="goalMonthlyNeed(g)" class="goal__need">每月需存 <span class="num">¥{{ fmtMoney(goalMonthlyNeed(g).per) }}</span> · 还差 {{ goalMonthlyNeed(g).months }} 个月</small>
+        <small v-else-if="(Number(g.target) || 0) - (Number(g.saved) || 0) <= 0" class="goal__need goal__need--done">已达成 🎉</small>
+        <small v-else class="goal__need">还差 <span class="num">¥{{ fmtMoney((Number(g.target) || 0) - (Number(g.saved) || 0)) }}</span></small>
+        <span class="goal__save">
+          <input v-model="goalInputs[g.id]" class="input num goal__input" type="number" inputmode="decimal" min="0" placeholder="存入" />
+          <button class="btn btn--ghost btn--sm" @click="saveGoalContribution(g.id)">存</button>
         </span>
       </div>
     </div>
@@ -243,6 +292,27 @@ function accountBadge(t) {
 .budget__cat-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
 .budget__cat-val { font-size: 12px; text-align: right; color: var(--text-faint); }
 .budget__cat-val--over { color: var(--ink-red); }
+.budget__carry {
+  font-style: normal; font-size: 10px; color: var(--gold);
+  border: 1px solid var(--gold-line); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+
+.goals { padding: 14px 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.goals__head { display: flex; align-items: baseline; justify-content: space-between; }
+.goals__title { font-size: 13px; letter-spacing: 2px; color: var(--text-dim); }
+.goals__hint { font-size: 11px; color: var(--text-faint); }
+.goal { display: flex; flex-direction: column; gap: 5px; padding-top: 9px; border-top: 1px solid var(--line); }
+.goal:first-of-type { border-top: none; padding-top: 0; }
+.goal__row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.goal__name { font-size: 13.5px; font-weight: 600; }
+.goal__val { font-size: 12.5px; color: var(--text-dim); }
+.goal__bar { height: 7px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
+.goal__bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--ink-green), #4e9e74); }
+.goal__row--sub { justify-content: space-between; }
+.goal__need { font-size: 12px; color: var(--text-faint); }
+.goal__need--done { color: var(--ink-green); }
+.goal__save { display: inline-flex; align-items: center; gap: 6px; }
+.goal__input { width: 84px; padding: 4px 8px; font-size: 12.5px; text-align: right; }
 
 .bills { padding: 14px 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
 .bills__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }

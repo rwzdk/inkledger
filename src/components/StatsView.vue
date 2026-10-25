@@ -4,8 +4,9 @@ import * as echarts from 'echarts/core'
 import { PieChart, LineChart, BarChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { store, txsOfMonth, categoryById, accountById } from '../store.js'
+import { store, txsOfMonth, categoryById, accountById, tagsOfMonth } from '../store.js'
 import { fmtMoney, fmtPct, monthKey, monthLabel, addMonths, nowDateKey, monthRange, ACCOUNT_META } from '../lib/format.js'
+import { netWorthSeries, replayBalances } from '../lib/networth.js'
 
 echarts.use([PieChart, LineChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
@@ -103,11 +104,28 @@ const yearStats = computed(() => {
   }
 })
 
+const topCat = computed(() => byCategory.value.slice(0, 10))
+const maxCat = computed(() => topCat.value[0]?.[1] || 1)
+
+/* —— 标签排行(当月支出,多标签分别计入) —— */
+const topTags = computed(() => tagsOfMonth(month.value).slice(0, 10))
+const maxTag = computed(() => topTags.value[0]?.amount || 1)
+
+/* —— 净值走势:历史点按月末重放;当前总资产与 balanceOf 同口径(全量、不截断) —— */
+const netWorth = computed(() => {
+  const points = netWorthSeries(store.txs, store.accounts, month.value)
+  const balances = replayBalances(store.txs, store.accounts, null)
+  let current = 0
+  for (const v of balances.values()) current += v
+  return { points, current: Math.round(current * 100) / 100 }
+})
+
 /* —— 图表 —— */
 const pieEl = ref(null)
 const lineEl = ref(null)
 const barEl = ref(null)
 const yearEl = ref(null)
+const netEl = ref(null)
 let charts = []
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim()
 
@@ -175,6 +193,21 @@ function renderCharts() {
     })
     charts.push(chart)
   }
+  if (netEl.value) {
+    const chart = echarts.init(netEl.value)
+    const pts = netWorth.value.points
+    chart.setOption({
+      tooltip: { trigger: 'axis', valueFormatter: (v) => '¥' + fmtMoney(v) },
+      grid: { left: 8, right: 12, top: 16, bottom: 0, containLabel: true },
+      xAxis: { type: 'category', data: pts.map((p) => p.month), axisLabel: { ...axis, formatter: (v) => v.slice(2) } },
+      yAxis: { type: 'value', axisLabel: axis, splitLine: { lineStyle: { color: split } } },
+      series: [{
+        name: '净值', type: 'line', smooth: true, data: pts.map((p) => p.total),
+        itemStyle: { color: css('--gold') }, areaStyle: { opacity: 0.12 }
+      }]
+    })
+    charts.push(chart)
+  }
 }
 
 let ro = null
@@ -182,13 +215,11 @@ onMounted(async () => {
   await nextTick()
   renderCharts()
   ro = new ResizeObserver(() => charts.forEach((c) => c.resize()))
-  ;[pieEl, lineEl, barEl, yearEl].forEach((r) => r.value && ro.observe(r.value.parentElement))
+  ;[pieEl, lineEl, barEl, yearEl, netEl].forEach((r) => r.value && ro.observe(r.value.parentElement))
 })
 onBeforeUnmount(() => { ro?.disconnect(); charts.forEach((c) => c.dispose()) })
-watch([month, year, () => store.settings.theme], renderCharts)
+watch([month, year, () => store.settings.theme, netWorth, topTags, yearStats], renderCharts)
 
-const topCat = computed(() => byCategory.value.slice(0, 10))
-const maxCat = computed(() => topCat.value[0]?.[1] || 1)
 </script>
 
 <template>
@@ -240,6 +271,17 @@ const maxCat = computed(() => topCat.value[0]?.[1] || 1)
     <p v-if="!topCat.length" class="rank--empty">本月暂无支出</p>
   </section>
 
+  <div class="sec-title">标签排行</div>
+  <section class="card ranks">
+    <div v-for="t in topTags" :key="t.tag" class="rank">
+      <span class="rank__name">#{{ t.tag }}</span>
+      <div class="rank__bar"><i :style="{ width: (t.amount / maxTag * 100).toFixed(1) + '%' }"></i></div>
+      <span class="rank__val num">{{ fmtMoney(t.amount) }}<small class="rank__count">· {{ t.count }}笔</small></span>
+    </div>
+    <p v-if="!topTags.length" class="rank--empty">本月支出未使用标签</p>
+    <p v-if="topTags.length" class="rank--note">一笔支出含多个标签时分别计入各标签,合计可能大于当月总支出</p>
+  </section>
+
   <div class="sec-title">年度总览</div>
   <section class="card chart-card">
     <div class="year-chips">
@@ -255,6 +297,15 @@ const maxCat = computed(() => topCat.value[0]?.[1] || 1)
       <div class="yt"><span>月均支出</span><b class="num">{{ fmtMoney(yearStats.avg) }}</b></div>
     </div>
     <div ref="yearEl" class="chart chart--year"></div>
+  </section>
+
+  <div class="sec-title">资产走势</div>
+  <section class="card chart-card">
+    <div class="nw-head">
+      <div class="yt"><span>当前总资产</span><b class="num amt-in">¥{{ fmtMoney(netWorth.current) }}</b></div>
+      <small class="nw-note">按各账户余额推算 · 含负债(信用卡负余额)</small>
+    </div>
+    <div ref="netEl" class="chart chart--net"></div>
   </section>
 </template>
 
@@ -292,4 +343,9 @@ const maxCat = computed(() => topCat.value[0]?.[1] || 1)
 .yt span { font-size: 11px; color: var(--text-faint); letter-spacing: 1px; }
 .yt b { font-size: 14px; }
 .chart--year { height: 230px; }
+.chart--net { height: 210px; }
+.nw-head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 10px 10px; }
+.nw-note { font-size: 11px; color: var(--text-faint); }
+.rank__count { color: var(--text-faint); font-size: 11px; margin-left: 4px; }
+.rank--note { color: var(--text-faint); font-size: 11.5px; margin: 10px 0 2px; }
 </style>

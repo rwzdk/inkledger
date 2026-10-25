@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { store, addTx, updateTx, removeTx, showToast } from '../store.js'
+import { store, addTx, updateTx, removeTx, showToast, allTags } from '../store.js'
 import { fmtMoney, toLocalISO } from '../lib/format.js'
 import DataIcon from './DataIcon.vue'
 
@@ -25,6 +25,7 @@ const form = ref({
 form.value.amount = props.init ? String(props.init.amount ?? '') : ''
 
 const tagInput = ref('')
+const tagSuggestions = computed(() => allTags(20))
 const types = [
   { key: 'expense', label: '支出' },
   { key: 'income', label: '收入' },
@@ -168,7 +169,10 @@ function del() {
           <span class="field__label">标签</span>
           <div class="tags-row">
             <span v-for="t in form.tags" :key="t" class="tag" @click="form.tags = form.tags.filter((x) => x !== t)">#{{ t }} ✕</span>
-            <input v-model="tagInput" class="input tags-input" placeholder="回车添加" @keydown.enter.prevent="addTag" />
+            <input v-model="tagInput" class="input tags-input" placeholder="回车添加" list="tag-suggestions" @keydown.enter.prevent="addTag" />
+            <datalist id="tag-suggestions">
+              <option v-for="s in tagSuggestions" :key="s" :value="s" />
+            </datalist>
           </div>
         </label>
 

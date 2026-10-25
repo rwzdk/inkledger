@@ -2,7 +2,8 @@
  * 全局状态：本地优先（localStorage），可同步到 GitHub 私有仓库
  */
 import { reactive, watch } from 'vue'
-import { uid, toLocalISO, monthKey, nowDateKey, addDays, advanceCycle, CYCLES } from './lib/format.js'
+import { uid, toLocalISO, monthKey, nowDateKey, addDays, addMonths, advanceCycle, CYCLES } from './lib/format.js'
+import { monthDistance } from './lib/budget.js'
 import { importBill, importRows } from './lib/importer.js'
 import { getUser, ensureRepo, readData, writeData } from './lib/github.js'
 
@@ -75,6 +76,7 @@ function defaultState() {
     categories: JSON.parse(JSON.stringify(seedCategories)),
     budgets: [],
     recurring: [],
+    goals: [],
     settings: {
       theme: 'dark',
       github: { token: '', login: '', repo: '' },
@@ -95,6 +97,7 @@ function load() {
       categories: saved.categories?.length ? upgradeIcons(saved.categories) : base.categories,
       budgets: Array.isArray(saved.budgets) ? saved.budgets : [],
       recurring: Array.isArray(saved.recurring) ? saved.recurring : [],
+      goals: Array.isArray(saved.goals) ? saved.goals : [],
       settings: { ...base.settings, ...saved.settings, github: { ...base.settings.github, ...saved.settings?.github } }
     }
   } catch {
@@ -111,6 +114,7 @@ export function persist() {
     categories: store.categories,
     budgets: store.budgets,
     recurring: store.recurring,
+    goals: store.goals,
     settings: store.settings
   }))
 }
@@ -180,25 +184,87 @@ export function setBudget(categoryId, amount) {
     if (i >= 0) store.budgets.splice(i, 1)
     return
   }
-  const item = { id: categoryId, amount: v, updatedAt: Date.now() }
+  const prev = i >= 0 ? store.budgets[i] : {}
+  // 保留 carryover/startMonth 等扩展字段,改额度不重置结转基线
+  const item = { ...prev, id: categoryId, amount: v, updatedAt: Date.now() }
   if (i >= 0) store.budgets[i] = item
   else store.budgets.push(item)
 }
+/** 信封结转开关:启用即以当月为基线;停用回到单月口径 */
+export function toggleCarryover(categoryId, on) {
+  const b = store.budgets.find((x) => x.id === categoryId)
+  if (!b) return
+  if (on) {
+    b.carryover = true
+    b.startMonth = monthKey(nowDateKey())
+  } else {
+    delete b.carryover
+    delete b.startMonth
+  }
+  b.updatedAt = Date.now()
+}
 export const budgetOf = (categoryId) => store.budgets.find((b) => b.id === categoryId)?.amount || 0
 
-/** 某月各分类预算执行情况(按剩余比例升序,最紧张的在前) */
+/** 某月各分类预算执行情况(信封口径见 lib/budget.js;按剩余比例升序,最紧张的在前) */
 export function budgetStatus(mKey) {
+  // 先按 分类 聚合当月支出,避免三层循环
+  const spentBy = new Map()
+  for (const t of txsOfMonth(mKey)) {
+    if (t.type !== 'expense' || !t.categoryId) continue
+    if (!spentBy.has(t.categoryId)) spentBy.set(t.categoryId, 0)
+    spentBy.set(t.categoryId, spentBy.get(t.categoryId) + t.amount)
+  }
+  // 窗口累计(信封用):分类 → Map(月 → 支出),一次遍历全部账目
+  const windowSpent = new Map()
+  for (const b of store.budgets) {
+    if (b.carryover && b.startMonth) {
+      const cat = categoryById(b.id)
+      if (cat && cat.kind === 'expense') windowSpent.set(b.id, new Map())
+    }
+  }
+  if (windowSpent.size) {
+    for (const t of store.txs) {
+      if (t.type !== 'expense' || !t.categoryId) continue
+      const map = windowSpent.get(t.categoryId)
+      if (!map) continue
+      const b = store.budgets.find((x) => x.id === t.categoryId)
+      if (!b?.startMonth || monthKey(t.date) < b.startMonth) continue
+      const m = monthKey(t.date)
+      map.set(m, (map.get(m) || 0) + t.amount)
+    }
+  }
   const rows = []
   for (const b of store.budgets) {
     const cat = categoryById(b.id)
     if (!cat || cat.kind !== 'expense') continue
-    let spent = 0
-    for (const t of txsOfMonth(mKey)) {
-      if (t.type === 'expense' && t.categoryId === b.id) spent += t.amount
+    const spentM = spentBy.get(b.id) || 0
+    let eff
+    if (b.carryover && b.startMonth) {
+      const map = windowSpent.get(b.id) || new Map()
+      // 与 lib/budget.js 的 envelopeOf 同口径:窗口内逐月累计 + 当月
+      const months = monthDistance(b.startMonth, mKey)
+      if (months <= 1) {
+        eff = { budget: b.amount, spent: spentM, months: 1 }
+      } else {
+        let windowSpentSum = 0
+        let cur = b.startMonth
+        for (let i = 0; i < months - 1; i++) {
+          windowSpentSum += map.get(cur) || 0
+          cur = addMonths(cur, 1)
+        }
+        eff = { budget: b.amount * months, spent: windowSpentSum + spentM, months }
+      }
+    } else {
+      eff = { budget: b.amount, spent: spentM, months: 1 }
     }
-    rows.push({ categoryId: b.id, name: cat.name, icon: cat.icon, budget: b.amount, spent, remain: b.amount - spent })
+    rows.push({
+      categoryId: b.id, name: cat.name, icon: cat.icon,
+      budget: eff.budget, spent: eff.spent, remain: eff.budget - eff.spent,
+      carryover: !!(b.carryover && b.startMonth) && eff.months > 1
+    })
   }
-  return rows.sort((a, b) => a.remain / b.budget - b.remain / b.budget)
+  // 按剩余比例升序;额度为 0 的脏数据兜底排最后
+  return rows.sort((a, b) => (a.budget > 0 ? a.remain / a.budget : 1) - (b.budget > 0 ? b.remain / b.budget : 1))
 }
 
 /* —— 周期账单/订阅:cycle 为 monthly | quarterly | yearly,nextDate 为 'YYYY-MM-DD' —— */
@@ -255,6 +321,59 @@ export function payRecurring(id) {
   r.nextDate = next
   r.updatedAt = Date.now()
   return tx
+}
+
+/* —— 储蓄目标:纯进度追踪,不计入账户余额与总资产 —— */
+export function upsertGoal(g) {
+  const i = store.goals.findIndex((x) => x.id === g.id)
+  const item = {
+    ...g,
+    target: Math.max(0, Math.round((Number(g.target) || 0) * 100) / 100),
+    saved: Math.max(0, Math.round((Number(g.saved) || 0) * 100) / 100),
+    updatedAt: Date.now()
+  }
+  if (i >= 0) store.goals[i] = item
+  else store.goals.push({ ...item, id: g.id || uid(), createdAt: Date.now() })
+}
+export function removeGoal(id) {
+  store.goals = store.goals.filter((g) => g.id !== id)
+}
+/** 存入:仅累加目标进度,不影响账户余额;仅接受正数 */
+export function contributeGoal(id, amount) {
+  const g = store.goals.find((x) => x.id === id)
+  if (!g) return null
+  const v = Math.round((Number(amount) || 0) * 100) / 100
+  if (!(v > 0)) return null
+  g.saved = Math.round(((Number(g.saved) || 0) + v) * 100) / 100
+  g.updatedAt = Date.now()
+  return g
+}
+
+/** 标签排行:当月支出按标签聚合(一笔多标签分别计入);含笔数 */
+export function tagsOfMonth(mKey) {
+  const map = new Map()
+  for (const t of txsOfMonth(mKey)) {
+    if (t.type !== 'expense') continue
+    const tags = (t.tags || []).map((s) => String(s).trim()).filter(Boolean)
+    if (!tags.length) continue
+    for (const tag of tags) {
+      if (!map.has(tag)) map.set(tag, { amount: 0, count: 0 })
+      map.get(tag).amount += t.amount
+      map.get(tag).count += 1
+    }
+  }
+  return [...map.entries()].map(([tag, v]) => ({ tag, ...v })).sort((a, b) => b.amount - a.amount)
+}
+
+/** 全库标签频次(标签输入自动补全用,Top N) */
+export function allTags(topN = 30) {
+  const freq = new Map()
+  for (const t of store.txs) {
+    for (const tag of (t.tags || []).map((s) => String(s).trim()).filter(Boolean)) {
+      freq.set(tag, (freq.get(tag) || 0) + 1)
+    }
+  }
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN).map(([tag]) => tag)
 }
 
 /* —— 查询 —— */
@@ -318,7 +437,8 @@ export function importFromRows(rows) {
 export function exportJSON() {
   return JSON.stringify({
     app: 'inkledger', version: 1, exportedAt: new Date().toISOString(),
-    txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring
+    txs: store.txs, accounts: store.accounts, categories: store.categories,
+    budgets: store.budgets, recurring: store.recurring, goals: store.goals
   }, null, 2)
 }
 export function importJSON(text) {
@@ -327,8 +447,9 @@ export function importJSON(text) {
   store.txs = data.txs
   store.accounts = data.accounts
   store.categories = data.categories?.length ? data.categories : defaultState().categories
-  store.budgets = Array.isArray(data.budgets) ? data.budgets : []
+  store.budgets = (Array.isArray(data.budgets) ? data.budgets : []).filter((b) => Number(b?.amount) > 0)
   store.recurring = Array.isArray(data.recurring) ? data.recurring : []
+  store.goals = Array.isArray(data.goals) ? data.goals : []
   showToast('数据已导入')
 }
 export function clearAll() {
@@ -338,6 +459,7 @@ export function clearAll() {
   store.categories = base.categories
   store.budgets = []
   store.recurring = []
+  store.goals = []
   showToast('已清空全部账目')
 }
 
@@ -345,7 +467,7 @@ export function clearAll() {
 export function mergeCloud(local, cloud) {
   if (!cloud) return {
     txs: local.txs, accounts: local.accounts, categories: local.categories,
-    budgets: local.budgets || [], recurring: local.recurring || []
+    budgets: local.budgets || [], recurring: local.recurring || [], goals: local.goals || []
   }
   const mergeArr = (a = [], b = []) => {
     const map = new Map()
@@ -360,7 +482,8 @@ export function mergeCloud(local, cloud) {
     accounts: mergeArr(local.accounts, cloud.accounts),
     categories: mergeArr(local.categories, cloud.categories),
     budgets: mergeArr(local.budgets || [], cloud.budgets || []),
-    recurring: mergeArr(local.recurring || [], cloud.recurring || [])
+    recurring: mergeArr(local.recurring || [], cloud.recurring || []),
+    goals: mergeArr(local.goals || [], cloud.goals || [])
   }
 }
 
@@ -379,7 +502,7 @@ export async function syncToGitHub() {
 
   const cloud = await readData(token, owner, repoName)
   const merged = mergeCloud(
-    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring },
+    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring, goals: store.goals },
     cloud.data
   )
   store.txs = merged.txs
@@ -387,10 +510,12 @@ export async function syncToGitHub() {
   store.categories = merged.categories
   store.budgets = merged.budgets
   store.recurring = merged.recurring
+  store.goals = merged.goals
 
   await writeData(token, owner, repoName, {
     app: 'inkledger', version: 1, syncedAt: new Date().toISOString(),
-    txs: merged.txs, accounts: merged.accounts, categories: merged.categories, budgets: merged.budgets, recurring: merged.recurring
+    txs: merged.txs, accounts: merged.accounts, categories: merged.categories,
+    budgets: merged.budgets, recurring: merged.recurring, goals: merged.goals
   }, cloud.sha)
 
   store.settings.github = { token, login: owner, repo: repoName }
@@ -462,5 +587,8 @@ export function loadSample() {
       nextDate: addDays(nowDateKey(), inDays)
     })
   }
+  // 演示储蓄目标
+  upsertGoal({ id: uid(), name: '旅行基金', target: 8000, saved: 5200, deadline: addMonths(monthKey(nowDateKey()), 5) + '-01' })
+  upsertGoal({ id: uid(), name: '新手机', target: 6000, saved: 1500, deadline: addMonths(monthKey(nowDateKey()), 8) + '-01' })
   showToast(`已生成 ${txs.length} 笔示例账目，可在设置中一键清空`)
 }

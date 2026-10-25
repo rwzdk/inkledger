@@ -1,10 +1,12 @@
-/** 导入器测试：node tests/run.mjs */
+/** 单元测试：node tests/run.mjs（导入器/CSV/XLSX + 预算信封/净值推导） */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { importBill, importRows, parseBill, detectBill } from '../src/lib/importer.js'
 import { parseCSV } from '../src/lib/csv.js'
 import { isXlsx, parseXlsxRows } from '../src/lib/xlsx.js'
+import { monthDistance, envelopeOf } from '../src/lib/budget.js'
+import { netWorthSeries, replayBalances } from '../src/lib/networth.js'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 let failed = 0
@@ -105,6 +107,128 @@ ok(rx.txs.filter((t) => t.accountId === 'acc-wechat').length === 5, 'xlsx：零�
 const xKeys = new Set(rx.txs.map((t) => t.sourceKey))
 const rx2 = importRows(xlsxRows, { accounts, categories, existingKeys: xKeys })
 ok(rx2.txs.length === 0, 'xlsx：重复导入 0 笔')
+
+console.log('\n[budget.monthDistance]')
+ok(monthDistance('2026-03', '2026-03') === 1, '同月距离为 1（含两端）')
+ok(monthDistance('2025-11', '2026-02') === 4, '跨年 2025-11→2026-02 为 4 个月（含两端）')
+ok(monthDistance('2026-03', '2026-02') === 0, '目标月早 1 个月返回 0')
+ok(monthDistance('2026-03', '2026-01') === -1, '目标月早 2 个月返回 -1')
+
+console.log('\n[budget.envelopeOf]')
+const envSame = envelopeOf(500, '2026-03', '2026-03', (m) => (m === '2026-03' ? 120 : 0))
+ok(envSame.envelope === 500 && envSame.spent === 120 && envSame.remain === 380 && envSame.months === 1,
+  `同月：信封=额度 500，余 500-120=380（实际 ${JSON.stringify(envSame)}）`)
+
+// 跨年：基线 2025-11 → 目标 2026-02 共 4 个月（11/12/1/2），额度 400/月
+// 窗口支出 = 11月100 + 12月0 + 1月50 + 当月2月200 = 350；信封 1600，余 1250
+const envCross = envelopeOf(400, '2025-11', '2026-02', (m) => ({ '2025-11': 100, '2026-01': 50, '2026-02': 200 }[m] || 0))
+ok(envCross.months === 4 && envCross.envelope === 1600,
+  `跨年：4 个月信封 400×4=1600（实际 months=${envCross.months} envelope=${envCross.envelope}）`)
+ok(envCross.spent === 350 && envCross.remain === 1250,
+  `跨年：支出 100+0+50+200=350，余 1250（实际 spent=${envCross.spent} remain=${envCross.remain}）`)
+
+// 目标月早于基线月：退回单月口径（信封=当月额度，只看目标月支出）
+const envBack = envelopeOf(500, '2026-03', '2026-01', (m) => (m === '2026-01' ? 80 : 0))
+ok(envBack.envelope === 500 && envBack.spent === 80 && envBack.remain === 420 && envBack.months === 1,
+  `目标早 2 个月（distance=-1）：退回单月口径（实际 ${JSON.stringify(envBack)}）`)
+const envBack0 = envelopeOf(500, '2026-03', '2026-02', (m) => (m === '2026-02' ? 80 : 0))
+ok(envBack0.envelope === 500 && envBack0.spent === 80 && envBack0.remain === 420 && envBack0.months === 1,
+  `目标早 1 个月（distance=0）：同样单月口径（实际 ${JSON.stringify(envBack0)}）`)
+
+// 窗口累计：基线 2026-01 → 目标 2026-03，1月300/2月200/3月100，额度 500/月
+// 信封 = 500×3 = 1500；总支出 = 300+200+100 = 600；余 = 900
+const envWin = envelopeOf(500, '2026-01', '2026-03', (m) => ({ '2026-01': 300, '2026-02': 200, '2026-03': 100 }[m] || 0))
+ok(envWin.months === 3 && envWin.envelope === 1500,
+  `三月窗口：信封 500×3=1500（实际 months=${envWin.months} envelope=${envWin.envelope}）`)
+ok(envWin.spent === 600 && envWin.remain === 900,
+  `三月窗口：支出 300+200+100=600，余 900（实际 spent=${envWin.spent} remain=${envWin.remain}）`)
+
+// 无支出月份：spentOf 全为 0，不扣减
+const envNone = envelopeOf(500, '2026-01', '2026-02', () => 0)
+ok(envNone.envelope === 1000 && envNone.spent === 0 && envNone.remain === 1000 && envNone.months === 2,
+  `无支出：信封 1000 支出 0 余 1000（实际 ${JSON.stringify(envNone)}）`)
+
+console.log('\n[networth.replayBalances]')
+const nwAccounts = [
+  { id: 'acc-a', name: '甲', type: 'cash', initialBalance: 1000 },
+  { id: 'acc-b', name: '乙', type: 'bank', initialBalance: 50 }
+]
+const nwTxs = [
+  { type: 'income', accountId: 'acc-a', amount: 200, date: '2026-01-05' },
+  { type: 'expense', accountId: 'acc-a', amount: 300, date: '2026-01-10' },
+  { type: 'income', accountId: 'ghost', amount: 500, date: '2026-01-15' },
+  { type: 'transfer', accountId: 'acc-b', toAccountId: 'ghost', amount: 30, date: '2026-01-20' },
+  { type: 'expense', accountId: 'ghost', amount: 70, date: '2026-01-25' },
+  { type: 'transfer', accountId: 'acc-a', toAccountId: 'acc-b', amount: 100, date: '2026-02-01' }
+]
+// asOf=null 计入全部：甲=1000+200-300-100=800；乙=50-30+100=120；ghost 相关账目忽略
+const balAll = replayBalances(nwTxs, nwAccounts, null)
+ok(balAll.get('acc-a') === 800, `全部账目：甲 1000+200-300-100=800（实际 ${balAll.get('acc-a')}）`)
+ok(balAll.get('acc-b') === 120, `全部账目：乙 50-30+100=120（transfer 两腿，实际 ${balAll.get('acc-b')}）`)
+ok(!balAll.has('ghost'), '指向不存在账户的账目被忽略（不产生 ghost 键）')
+// asOf='2026-02-01'：排除 date≥2026-02-01（仅 2-1 转账）：甲=900，乙=50-30=20
+const balFeb = replayBalances(nwTxs, nwAccounts, '2026-02-01')
+ok(balFeb.get('acc-a') === 900 && balFeb.get('acc-b') === 20,
+  `asOf 2026-02-01：甲 900 乙 20（实际 甲=${balFeb.get('acc-a')} 乙=${balFeb.get('acc-b')}）`)
+// asOf='2026-01-20'：再排除 1-20 转账出腿：甲=900，乙=50
+const balJan = replayBalances(nwTxs, nwAccounts, '2026-01-20')
+ok(balJan.get('acc-a') === 900 && balJan.get('acc-b') === 50,
+  `asOf 2026-01-20：甲 900 乙 50（实际 甲=${balJan.get('acc-a')} 乙=${balJan.get('acc-b')}）`)
+
+console.log('\n[networth.netWorthSeries]')
+const ptsEmpty = netWorthSeries([], [], '2026-03')
+ok(ptsEmpty.length === 1 && ptsEmpty[0].month === '2026-03' && ptsEmpty[0].total === 0,
+  `空账目+空账户 → 单点 {2026-03, 0}（实际 ${JSON.stringify(ptsEmpty)}）`)
+
+// 单账户存量不归零：无账目时点值为 initialBalance 而非 0
+const ptsStock = netWorthSeries([], [{ id: 'acc-a', name: '甲', type: 'cash', initialBalance: 1000 }], '2026-03')
+ok(ptsStock.length === 1 && ptsStock[0].month === '2026-03' && ptsStock[0].total === 1000,
+  `单账户无账目 → 点值 1000 而非 0（实际 ${JSON.stringify(ptsStock)}）`)
+
+// 无账目月份存量结转：0 余额且 2026-01 建档的账户拉长窗口起点，三个月均结转 1000
+const ptsCarry = netWorthSeries([], [
+  { id: 'acc-a', name: '甲', type: 'cash', initialBalance: 1000 },
+  { id: 'acc-z', name: 'Z', type: 'cash', initialBalance: 0, createdAt: new Date(2026, 0, 5).getTime() }
+], '2026-03')
+ok(ptsCarry.length === 3 && ptsCarry.map((p) => p.month).join() === '2026-01,2026-02,2026-03' && ptsCarry.every((p) => p.total === 1000),
+  `无账目月份结转：2026-01..03 均为 1000 不归零（实际 ${JSON.stringify(ptsCarry)}）`)
+
+// 收入/支出逐月累计：1月收500→1500，2月支200→1300，3月无账目结转1300
+const flowPts = netWorthSeries([
+  { type: 'income', accountId: 'acc-a', amount: 500, date: '2026-01-10' },
+  { type: 'expense', accountId: 'acc-a', amount: 200, date: '2026-02-05' }
+], [{ id: 'acc-a', name: '甲', type: 'cash', initialBalance: 1000 }], '2026-03')
+ok(flowPts.map((p) => p.total).join() === '1500,1300,1300',
+  `收支累计：1000+500=1500 → -200=1300 → 结转 1300（实际 ${flowPts.map((p) => p.total).join()}）`)
+
+// transfer 净值中性：两腿同月对消，总额不变并结转
+const trPts = netWorthSeries(
+  [{ type: 'transfer', accountId: 'acc-a', toAccountId: 'acc-b', amount: 300, date: '2026-02-10' }],
+  [
+    { id: 'acc-a', name: '甲', type: 'cash', initialBalance: 1000 },
+    { id: 'acc-b', name: '乙', type: 'bank', initialBalance: 50 }
+  ], '2026-03')
+ok(trPts.length === 2 && trPts[0].month === '2026-02' && trPts[0].total === 1050 && trPts[1].total === 1050,
+  `转账中性：1000+50=1050，次月结转仍 1050（实际 ${JSON.stringify(trPts)}）`)
+
+// createdAt：创建月前不计入净值，创建月（含）起计入并带上 initialBalance
+const crPts = netWorthSeries(
+  [{ type: 'income', accountId: 'acc-old', amount: 500, date: '2026-01-10' }],
+  [
+    { id: 'acc-old', name: '老户', type: 'cash', initialBalance: 1000 },
+    { id: 'acc-new', name: '新户', type: 'bank', initialBalance: 700, createdAt: new Date(2026, 1, 15).getTime() }
+  ], '2026-03')
+ok(crPts[0].month === '2026-01' && crPts[0].total === 1500, `创建月前：仅老户 1000+500=1500（实际 ${crPts[0]?.total}）`)
+ok(crPts[1].month === '2026-02' && crPts[1].total === 2200, `创建月起：1500+新户700=2200（实际 ${crPts[1]?.total}）`)
+ok(crPts[2].month === '2026-03' && crPts[2].total === 2200, `创建后结转：仍 2200（实际 ${crPts[2]?.total}）`)
+
+// 跨年连续：2025-11 → 2026-02 生成 4 个连续月点
+const cyPts = netWorthSeries(
+  [{ type: 'income', accountId: 'acc-a', amount: 250, date: '2025-11-20' }],
+  [{ id: 'acc-a', name: '甲', type: 'cash', initialBalance: 100 }], '2026-02')
+ok(cyPts.length === 4 && cyPts.map((p) => p.month).join() === '2025-11,2025-12,2026-01,2026-02',
+  `跨年 4 点且月份连续（实际 ${cyPts.map((p) => p.month).join()}）`)
+ok(cyPts.every((p) => p.total === 350), `每月 100+250=350 结转（实际 ${cyPts.map((p) => p.total).join()}）`)
 
 if (failed) {
   console.error(`\n✗ ${failed} 个断言失败\n`)

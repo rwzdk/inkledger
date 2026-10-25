@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed } from 'vue'
 import {
-  store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory, setBudget, budgetOf,
-  upsertRecurring, removeRecurring,
+  store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory, setBudget, budgetOf, toggleCarryover,
+  upsertRecurring, removeRecurring, upsertGoal, removeGoal,
   importFromText, importFromRows, exportJSON, importJSON, clearAll, loadSample, balanceOf,
   syncToGitHub, defaultRepoName
 } from '../store.js'
@@ -136,6 +136,22 @@ function saveRecurring() {
   showToast('周期账单已保存')
 }
 
+/* —— 储蓄目标 —— */
+const goalForm = ref(null)
+function newGoal() { goalForm.value = { id: '', name: '', target: '', saved: 0, deadline: '' } }
+function saveGoal() {
+  const f = goalForm.value
+  if (!f.name.trim()) { showToast('请填写目标名称'); return }
+  if (!(Number(f.target) > 0)) { showToast('请填写目标金额'); return }
+  upsertGoal({
+    id: f.id, name: f.name.trim(),
+    target: Number(f.target), saved: Number(f.saved) || 0,
+    deadline: /^\d{4}-\d{2}/.test(f.deadline || '') ? f.deadline.slice(0, 7) + '-01' : ''
+  })
+  goalForm.value = null
+  showToast('目标已保存')
+}
+
 /* —— CSV 导出 —— */
 function downloadTxCsv() {
   const catName = (id) => store.categories.find((c) => c.id === id)?.name || ''
@@ -267,6 +283,13 @@ function doClear() {
           @change="onBudgetChange(c.id, $event)"
         />
         <span class="budget-input__unit2">/月</span>
+        <button
+          v-if="budgetOf(c.id)"
+          class="btn btn--ghost btn--sm budget-carry"
+          :class="{ 'budget-carry--on': store.budgets.find((b) => b.id === c.id)?.carryover }"
+          :title="'信封结转:' + (store.budgets.find((b) => b.id === c.id)?.carryover ? '未用完额度滚入下月' : '未用完额度月末清零')"
+          @click="toggleCarryover(c.id, !store.budgets.find((b) => b.id === c.id)?.carryover)"
+        >结转</button>
       </div>
     </div>
     <p class="hint budget-sum" v-if="totalBudget">合计月预算 <b class="num">¥{{ totalBudget }}</b></p>
@@ -287,6 +310,20 @@ function doClear() {
       <button class="btn btn--ghost btn--sm" @click="recForm = { ...r }">编辑</button>
     </div>
     <button class="btn upload-block" @click="newRecurring">＋ 新增周期账单</button>
+  </section>
+
+  <!-- 储蓄目标 -->
+  <div class="sec-title">储蓄目标</div>
+  <section class="card">
+    <p class="hint">存钱罐式进度追踪(如旅行基金、新手机):存入只累计目标进度,<strong>不影响账户余额与总资产</strong>。目标进度不参与多端叠加合并,多端使用时请以一端为准。</p>
+    <div v-for="g in store.goals" :key="g.id" class="row-line row-line--rec">
+      <span class="row-line__body">
+        <b>{{ g.name }}</b>
+        <small class="num">¥{{ fmtMoney(g.saved) }} / ¥{{ fmtMoney(g.target) }}<template v-if="g.deadline"> · 目标 {{ g.deadline.slice(0, 7) }}</template></small>
+      </span>
+      <button class="btn btn--ghost btn--sm" @click="goalForm = { ...g, deadline: g.deadline ? g.deadline.slice(0, 7) : '' }">编辑</button>
+    </div>
+    <button class="btn upload-block" @click="newGoal">＋ 新增目标</button>
   </section>
 
   <!-- 数据管理 -->
@@ -311,7 +348,7 @@ function doClear() {
     <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')"><AppIcon name="sun" :size="15" /> 宣纸</button>
   </section>
 
-  <p class="about serif">墨账 InkLedger · v1.4 · 静态部署 · 数据自持</p>
+  <p class="about serif">墨账 InkLedger · v1.5 · 静态部署 · 数据自持</p>
 
   <!-- 账户编辑弹层 -->
   <Teleport to="body">
@@ -334,6 +371,36 @@ function doClear() {
           </template>
           <button class="btn" @click="accForm = null">取消</button>
           <button class="btn btn--gold" @click="saveAccount">保存</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 目标编辑弹层 -->
+  <Teleport to="body">
+    <div v-if="goalForm" class="overlay" @click.self="goalForm = null">
+      <div class="sheet">
+        <h3 class="sheet__title">{{ goalForm.id ? '编辑目标' : '新增目标' }}
+          <button class="sheet__close" @click="goalForm = null">✕</button></h3>
+        <div class="row">
+          <label class="field" style="flex: 1"><span class="field__label">名称</span>
+            <input v-model="goalForm.name" class="input" placeholder="如：旅行基金" /></label>
+          <label class="field" style="width: 120px"><span class="field__label">目标金额(¥)</span>
+            <input v-model="goalForm.target" class="input num" type="number" inputmode="decimal" min="0" step="100" placeholder="0" /></label>
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <label class="field" style="width: 140px"><span class="field__label">已存金额(¥)</span>
+            <input v-model="goalForm.saved" class="input num" type="number" inputmode="decimal" min="0" step="100" /></label>
+          <label class="field" style="flex: 1"><span class="field__label">目标月(选填)</span>
+            <input v-model="goalForm.deadline" class="input num" type="month" /></label>
+        </div>
+        <div class="row row--end" style="margin-top: 18px">
+          <template v-if="goalForm.id">
+            <button class="btn btn--danger" @click="removeGoal(goalForm.id) || (goalForm = null)">删除</button>
+            <span style="flex: 1"></span>
+          </template>
+          <button class="btn" @click="goalForm = null">取消</button>
+          <button class="btn btn--gold" @click="saveGoal">保存</button>
         </div>
       </div>
     </div>
@@ -458,6 +525,9 @@ function doClear() {
 
 .fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 @media (max-width: 480px) { .fields-grid { grid-template-columns: 1fr; } }
+
+.budget-carry { flex: none; font-size: 11px; padding: 4px 8px; color: var(--text-faint); }
+.budget-carry--on { color: var(--gold); border-color: var(--gold-line); }
 .row-line__icon {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   display: flex; align-items: center; justify-content: center; font-size: 17px;
