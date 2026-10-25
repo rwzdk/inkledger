@@ -30,31 +30,48 @@ export function detectBill(rows) {
   return null
 }
 
+/** 单元格清洗：去空白；微信/支付宝导出用 "/" 表示空 */
+const cleanCell = (s) => {
+  const v = String(s ?? '').trim()
+  return v === '/' ? '' : v
+}
+
+/** Excel 序列日期（如 46296.8853）→ 'YYYY-MM-DD HH:mm:ss'（按 UTC 取位避免时区漂移） */
+export function excelSerialToTime(serial) {
+  const d = new Date(Math.round((Number(serial) - 25569) * 86400000))
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
+}
+
+const normTimeCell = (v) => (/^\d+(\.\d+)?$/.test(v) ? excelSerialToTime(v) : v)
+
 /** 表格行 → 统一结构的原始账单 */
 function normalizeRow(platform, headers, row) {
+  const get = (row, idx) => cleanCell(row[idx])
   if (platform === 'wechat') {
     return {
-      time: row[idxOf(headers, '交易时间')],
-      type: row[idxOf(headers, '交易类型')] || '',
-      payee: row[idxOf(headers, '交易对方')] || '',
-      item: row[idxOf(headers, '商品')] || '',
-      direction: (row[idxOf(headers, '收/支')] || '').trim(),
+      time: normTimeCell(get(row, idxOf(headers, '交易时间'))),
+      type: get(row, idxOf(headers, '交易类型')),
+      payee: get(row, idxOf(headers, '交易对方')),
+      item: get(row, idxOf(headers, '商品')),
+      direction: get(row, idxOf(headers, '收/支')),
       amount: cleanAmount(row[idxOf(headers, '金额')] || ''),
-      method: row[idxOf(headers, '支付方式')] || '',
-      status: row[idxOf(headers, '当前状态')] || '',
-      orderNo: row[idxOf(headers, '交易单号')] || ''
+      // 部分收入（如红包）支付方式为空，实际入账零钱
+      method: get(row, idxOf(headers, '支付方式')) || '零钱',
+      status: get(row, idxOf(headers, '当前状态')),
+      orderNo: get(row, idxOf(headers, '交易单号'))
     }
   }
   return {
-    time: row[idxOf(headers, '交易时间')],
-    type: row[idxOf(headers, '交易分类')] || '',
-    payee: row[idxOf(headers, '交易对方')] || '',
-    item: row[idxOf(headers, '商品说明')] || '',
-    direction: (row[idxOf(headers, '收/支')] || '').trim(),
+    time: normTimeCell(get(row, idxOf(headers, '交易时间'))),
+    type: get(row, idxOf(headers, '交易分类')),
+    payee: get(row, idxOf(headers, '交易对方')),
+    item: get(row, idxOf(headers, '商品说明')),
+    direction: get(row, idxOf(headers, '收/支')),
     amount: cleanAmount(row[idxOf(headers, '金额')] || ''),
-    method: row[idxOf(headers, '收/付款方式')] || '',
-    status: row[idxOf(headers, '交易状态')] || '',
-    orderNo: row[idxOf(headers, '交易订单号')] || ''
+    method: get(row, idxOf(headers, '收/付款方式')),
+    status: get(row, idxOf(headers, '交易状态')),
+    orderNo: get(row, idxOf(headers, '交易订单号'))
   }
 }
 
@@ -143,16 +160,28 @@ function normTime(t) {
 }
 
 /**
- * 导入主入口
+ * 导入主入口（CSV 文本）
  * @param ctx {accounts, categories, existingKeys} 当前数据上下文
  * @returns {txs, createdAccounts, skipped, platform}
  */
 export function importBill(text, ctx) {
-  const { platform, records } = parseBill(text)
+  return importRows(parseCSV(text), ctx)
+}
+
+/**
+ * 导入主入口（二维行数组，xlsx 等结构化来源使用）
+ */
+export function importRows(rows, ctx) {
+  const bill = detectBill(rows)
+  if (!bill) throw new Error('未识别出微信 / 支付宝账单表头（需要包含「交易时间」列的导出文件）')
+  const records = bill.rows
+    .map((r) => normalizeRow(bill.platform, bill.headers, r))
+    .filter((r) => r.time && /^\d{4}-\d{2}-\d{2}/.test(r.time) && Number.isFinite(r.amount))
   const accounts = [...ctx.accounts]
   const createdAccounts = []
   const txs = []
   let skipped = 0
+  const platform = bill.platform
 
   for (const r of records) {
     const kind = r.direction === '收入' ? 'income' : r.direction === '支出' ? 'expense' : null
