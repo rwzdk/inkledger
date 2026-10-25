@@ -40,3 +40,26 @@ export function decodeBuffer(buf) {
     return utf8
   }
 }
+
+/** 账目导出为 Excel 友好的 CSV(UTF-8 + BOM,引号转义) */
+export function buildTxCsv(txs, { categoryName, accountName, typeLabel }) {
+  const esc = (v) => {
+    const s = String(v ?? '')
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+  }
+  const header = ['日期', '类型', '分类', '账户', '商户/对方', '金额', '备注', '标签']
+  const lines = [header.join(',')]
+  for (const t of txs) {
+    lines.push([
+      t.date?.replace('T', ' ') || '',
+      typeLabel(t.type),
+      categoryName(t.categoryId),
+      accountName(t.accountId),
+      t.payee || '',
+      (t.type === 'expense' || t.type === 'transfer' ? '-' : '+') + (Number(t.amount) || 0).toFixed(2),
+      t.note || '',
+      (t.tags || []).join(' ')
+    ].map(esc).join(','))
+  }
+  return '\ufeff' + lines.join('\r\n')
+}

@@ -34,6 +34,23 @@ function setTheme(t) {
   store.settings.theme = t
   document.documentElement.dataset.theme = t
 }
+
+/* —— 键盘快捷键:输入框内不触发;N 记一笔、/ 聚焦搜索、Esc 关弹层 —— */
+window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement?.tagName
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable
+  if (e.key === 'Escape') {
+    if (editing.value) { editing.value = null; document.activeElement?.blur?.() }
+    return
+  }
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+  if (e.key === 'n' || e.key === 'N') { editing.value = {}; return }
+  if (e.key === '/') {
+    if (view.value !== 'home') view.value = 'home'
+    e.preventDefault()
+    requestAnimationFrame(() => document.querySelector('input.search')?.focus())
+  }
+})
 </script>
 
 <template>

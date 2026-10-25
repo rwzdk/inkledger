@@ -49,6 +49,46 @@ export function monthRange(key) {
   return [fmt(start), fmt(end)]
 }
 
+/** 'YYYY-MM-DD' 偏移 N 天 → 'YYYY-MM-DD' */
+export function addDays(dateKey, n) {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + n)
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`
+}
+
+/** 距今天数:今天为 0,过去为负 */
+export function daysFromToday(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return Math.round((new Date(y, m - 1, d) - today) / 86400000)
+}
+
+/** 周期账单的下次扣费日:保持日号,月末自动收敛(如 31 → 28/29/30) */
+export function advanceCycle(dateKey, cycle) {
+  const months = cycle === 'yearly' ? 12 : cycle === 'quarterly' ? 3 : 1
+  const [y, m, d] = dateKey.split('-').map(Number)
+  const dt = new Date(y, m - 1 + months, 1)
+  const lastDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(Math.min(d, lastDay))}`
+}
+
+/** 周期元信息 */
+export const CYCLES = {
+  monthly: { label: '每月', perMonth: 1 },
+  quarterly: { label: '每季', perMonth: 1 / 3 },
+  yearly: { label: '每年', perMonth: 1 / 12 }
+}
+
+/** 临近账单日文案 */
+export function dueLabel(dateKey) {
+  const n = daysFromToday(dateKey)
+  if (n === 0) return '今天'
+  if (n === 1) return '明天'
+  if (n === 2) return '后天'
+  if (n < 0) return `逾期${-n}天`
+  return `${n}天后`
+}
+
 /** 金额显示：千分位 + 两位小数 */
 export function fmtMoney(n, { sign = '' } = {}) {
   const v = Math.abs(Number(n) || 0)

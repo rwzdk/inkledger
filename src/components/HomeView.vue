@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { store, monthSummary, accountById, categoryById, budgetStatus } from '../store.js'
-import { fmtMoney, monthKey, monthLabel, addMonths, fmtDay, weekLabel, nowDateKey, ACCOUNT_META } from '../lib/format.js'
+import { store, showToast, monthSummary, accountById, categoryById, budgetStatus, upcomingBills, monthlyFixed, payRecurring } from '../store.js'
+import { fmtMoney, monthKey, monthLabel, addMonths, fmtDay, weekLabel, nowDateKey, dueLabel, daysFromToday, ACCOUNT_META } from '../lib/format.js'
 import AppIcon from './AppIcon.vue'
 import DataIcon from './DataIcon.vue'
 
@@ -20,6 +20,14 @@ const budgetTotal = computed(() => budgetRows.value.reduce(
   { amount: 0, spent: 0 }
 ))
 const budgetPct = (b) => Math.min(100, (b.spent / b.budget) * 100).toFixed(1)
+
+/** 周期账单:30 天内待缴(当前月视图也顺带展示当月已过的) */
+const bills = computed(() => upcomingBills(30))
+const fixedMonthly = computed(() => monthlyFixed())
+function payBill(id) {
+  const tx = payRecurring(id)
+  if (tx) showToast(`已入账 ${fmtMoney(tx.amount)} · ${tx.payee}`)
+}
 
 const filtered = computed(() => {
   return store.txs
@@ -131,6 +139,24 @@ function accountBadge(t) {
     </div>
   </section>
 
+  <!-- 周期账单提醒 -->
+  <section v-if="bills.length" class="card bills">
+    <div class="bills__head">
+      <span class="bills__title">近期账单</span>
+      <span class="bills__fixed" v-if="fixedMonthly">每月固定 <span class="num">≈¥{{ fmtMoney(fixedMonthly) }}</span></span>
+    </div>
+    <div v-for="b in bills" :key="b.id" class="bill">
+      <span class="bill__main">
+        <b>{{ b.name }}</b>
+        <small class="num bill__amount">¥{{ fmtMoney(b.amount) }}</small>
+      </span>
+      <span class="bill__due" :class="{ 'bill__due--over': daysFromToday(b.nextDate) < 0, 'bill__due--soon': daysFromToday(b.nextDate) <= 3 }">
+        {{ dueLabel(b.nextDate) }} · {{ b.nextDate.slice(5).replace('-', '/') }}
+      </span>
+      <button class="btn btn--ghost btn--sm" @click="payBill(b.id)">缴账</button>
+    </div>
+  </section>
+
   <!-- 类型 + 来源筛选 -->
   <div class="chips">
     <button
@@ -217,6 +243,19 @@ function accountBadge(t) {
 .budget__cat-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--gold), var(--gold-deep)); }
 .budget__cat-val { font-size: 12px; text-align: right; color: var(--text-faint); }
 .budget__cat-val--over { color: var(--ink-red); }
+
+.bills { padding: 14px 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
+.bills__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.bills__title { font-size: 13px; letter-spacing: 2px; color: var(--text-dim); }
+.bills__fixed { font-size: 12px; color: var(--text-faint); }
+.bills__fixed .num { color: var(--text-dim); }
+.bill { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.bill__main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.bill__main b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bill__amount { font-size: 12.5px; color: var(--text-dim); }
+.bill__due { flex: none; font-size: 12px; color: var(--text-faint); }
+.bill__due--soon { color: var(--gold); }
+.bill__due--over { color: var(--ink-red); }
 
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }

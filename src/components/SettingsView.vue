@@ -2,13 +2,14 @@
 import { ref, computed } from 'vue'
 import {
   store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory, setBudget, budgetOf,
+  upsertRecurring, removeRecurring,
   importFromText, importFromRows, exportJSON, importJSON, clearAll, loadSample, balanceOf,
   syncToGitHub, defaultRepoName
 } from '../store.js'
 import { getUser } from '../lib/github.js'
 import { isXlsx, parseXlsxRows } from '../lib/xlsx.js'
-import { fmtMoney, ACCOUNT_META } from '../lib/format.js'
-import { decodeBuffer } from '../lib/csv.js'
+import { fmtMoney, CYCLES, dueLabel, daysFromToday, nowDateKey, ACCOUNT_META } from '../lib/format.js'
+import { decodeBuffer, buildTxCsv } from '../lib/csv.js'
 import { CATEGORY_ICON_KEYS } from '../lib/icons.js'
 import AppIcon from './AppIcon.vue'
 import DataIcon from './DataIcon.vue'
@@ -111,6 +112,47 @@ const totalBudget = computed(() => {
   const sum = store.categories.reduce((s, c) => s + (c.kind === 'expense' ? budgetOf(c.id) : 0), 0)
   return sum ? fmtMoney(sum) : ''
 })
+
+/* —— 周期账单 —— */
+const cycleKeys = Object.keys(CYCLES)
+const recForm = ref(null)
+function newRecurring() {
+  const fallbackCat = store.categories.find((c) => c.kind === 'expense' && c.isFallback) || store.categories.find((c) => c.kind === 'expense')
+  recForm.value = {
+    id: '', name: '', amount: '', cycle: 'monthly', active: true,
+    categoryId: fallbackCat?.id || null,
+    accountId: store.accounts[0]?.id || null,
+    nextDate: nowDateKey()
+  }
+}
+function saveRecurring() {
+  const f = recForm.value
+  const amount = Number(f.amount)
+  if (!f.name.trim()) { showToast('请填写账单名称'); return }
+  if (!Number.isFinite(amount) || amount <= 0) { showToast('请填写正确的金额'); return }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.nextDate)) { showToast('请选择下次扣费日'); return }
+  upsertRecurring({ ...f, name: f.name.trim(), amount: Math.round(amount * 100) / 100 })
+  recForm.value = null
+  showToast('周期账单已保存')
+}
+
+/* —— CSV 导出 —— */
+function downloadTxCsv() {
+  const catName = (id) => store.categories.find((c) => c.id === id)?.name || ''
+  const accName = (id) => store.accounts.find((a) => a.id === id)?.name || ''
+  const typeLabel = (t) => (t === 'income' ? '收入' : t === 'transfer' ? '转账' : '支出')
+  const csv = buildTxCsv(
+    [...store.txs].sort((a, b) => b.date.localeCompare(a.date)),
+    { categoryName: catName, accountName: accName, typeLabel }
+  )
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `inkledger-账目-${nowDateKey()}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+  showToast(`已导出 ${store.txs.length} 笔账目`)
+}
 
 /* —— 数据管理 —— */
 function downloadExport() {
@@ -230,11 +272,29 @@ function doClear() {
     <p class="hint budget-sum" v-if="totalBudget">合计月预算 <b class="num">¥{{ totalBudget }}</b></p>
   </section>
 
+  <!-- 周期账单 -->
+  <div class="sec-title">周期账单 / 订阅</div>
+  <section class="card">
+    <p class="hint">房租、会员、话费等固定扣费:到期会显示在首页「近期账单」,点「缴账」一键入账并自动顺延下期。</p>
+    <div v-for="r in store.recurring" :key="r.id" class="row-line row-line--rec">
+      <span class="row-line__body">
+        <b>{{ r.name }} <small v-if="!r.active" class="rec-off">已停用</small></b>
+        <small>
+          {{ CYCLES[r.cycle]?.label }} ¥{{ fmtMoney(r.amount) }} · 下次 {{ r.nextDate }}
+          <em :class="{ 'rec-due--over': daysFromToday(r.nextDate) < 0 && r.active }">{{ r.active ? dueLabel(r.nextDate) : '' }}</em>
+        </small>
+      </span>
+      <button class="btn btn--ghost btn--sm" @click="recForm = { ...r }">编辑</button>
+    </div>
+    <button class="btn upload-block" @click="newRecurring">＋ 新增周期账单</button>
+  </section>
+
   <!-- 数据管理 -->
   <div class="sec-title">数据</div>
   <section class="card">
     <div class="row wrap">
       <button class="btn" @click="downloadExport">导出备份 JSON</button>
+      <button class="btn" @click="downloadTxCsv">导出账目 CSV</button>
       <label class="btn">导入备份
         <input type="file" accept=".json" @change="onBackupFile" hidden />
       </label>
@@ -251,7 +311,7 @@ function doClear() {
     <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')"><AppIcon name="sun" :size="15" /> 宣纸</button>
   </section>
 
-  <p class="about serif">墨账 InkLedger · v1.3 · 静态部署 · 数据自持</p>
+  <p class="about serif">墨账 InkLedger · v1.4 · 静态部署 · 数据自持</p>
 
   <!-- 账户编辑弹层 -->
   <Teleport to="body">
@@ -274,6 +334,51 @@ function doClear() {
           </template>
           <button class="btn" @click="accForm = null">取消</button>
           <button class="btn btn--gold" @click="saveAccount">保存</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 周期账单编辑弹层 -->
+  <Teleport to="body">
+    <div v-if="recForm" class="overlay" @click.self="recForm = null">
+      <div class="sheet">
+        <h3 class="sheet__title">{{ recForm.id ? '编辑周期账单' : '新增周期账单' }}
+          <button class="sheet__close" @click="recForm = null">✕</button></h3>
+        <div class="row">
+          <label class="field" style="flex: 1"><span class="field__label">名称</span>
+            <input v-model="recForm.name" class="input" placeholder="如：视频会员 / 房租" /></label>
+          <label class="field" style="width: 120px"><span class="field__label">金额(¥)</span>
+            <input v-model="recForm.amount" class="input num" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" /></label>
+        </div>
+        <div class="fields-grid">
+          <label class="field"><span class="field__label">周期</span>
+            <select v-model="recForm.cycle" class="select">
+              <option v-for="k in cycleKeys" :key="k" :value="k">{{ CYCLES[k].label }}</option>
+            </select></label>
+          <label class="field"><span class="field__label">下次扣费日</span>
+            <input v-model="recForm.nextDate" class="input num" type="date" /></label>
+          <label class="field"><span class="field__label">分类</span>
+            <select v-model="recForm.categoryId" class="select">
+              <option v-for="c in store.categories.filter((c) => c.kind === 'expense')" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select></label>
+          <label class="field"><span class="field__label">扣费账户</span>
+            <select v-model="recForm.accountId" class="select">
+              <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select></label>
+          <label class="field"><span class="field__label">状态</span>
+            <select v-model="recForm.active" class="select">
+              <option :value="true">启用</option>
+              <option :value="false">停用</option>
+            </select></label>
+        </div>
+        <div class="row row--end" style="margin-top: 18px">
+          <template v-if="recForm.id">
+            <button class="btn btn--danger" @click="removeRecurring(recForm.id) || (recForm = null)">删除</button>
+            <span style="flex: 1"></span>
+          </template>
+          <button class="btn" @click="recForm = null">取消</button>
+          <button class="btn btn--gold" @click="saveRecurring">保存</button>
         </div>
       </div>
     </div>
@@ -345,6 +450,14 @@ function doClear() {
 .budget-input__unit2 { color: var(--text-faint); font-size: 12px; }
 .budget-sum { margin: 12px 0 0; text-align: right; }
 .budget-sum b { color: var(--gold); font-weight: 600; }
+
+.row-line--rec { padding: 9px 0; }
+.rec-off { color: var(--text-faint); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+.row-line--rec em { font-style: normal; color: var(--text-faint); margin-left: 4px; }
+.rec-due--over { color: var(--ink-red) !important; }
+
+.fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+@media (max-width: 480px) { .fields-grid { grid-template-columns: 1fr; } }
 .row-line__icon {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   display: flex; align-items: center; justify-content: center; font-size: 17px;

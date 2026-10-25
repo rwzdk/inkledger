@@ -2,7 +2,7 @@
  * 全局状态：本地优先（localStorage），可同步到 GitHub 私有仓库
  */
 import { reactive, watch } from 'vue'
-import { uid, toLocalISO, monthKey } from './lib/format.js'
+import { uid, toLocalISO, monthKey, nowDateKey, addDays, advanceCycle, CYCLES } from './lib/format.js'
 import { importBill, importRows } from './lib/importer.js'
 import { getUser, ensureRepo, readData, writeData } from './lib/github.js'
 
@@ -74,6 +74,7 @@ function defaultState() {
     accounts: JSON.parse(JSON.stringify(seedAccounts)),
     categories: JSON.parse(JSON.stringify(seedCategories)),
     budgets: [],
+    recurring: [],
     settings: {
       theme: 'dark',
       github: { token: '', login: '', repo: '' },
@@ -93,6 +94,7 @@ function load() {
       accounts: saved.accounts?.length ? saved.accounts : base.accounts,
       categories: saved.categories?.length ? upgradeIcons(saved.categories) : base.categories,
       budgets: Array.isArray(saved.budgets) ? saved.budgets : [],
+      recurring: Array.isArray(saved.recurring) ? saved.recurring : [],
       settings: { ...base.settings, ...saved.settings, github: { ...base.settings.github, ...saved.settings?.github } }
     }
   } catch {
@@ -108,6 +110,7 @@ export function persist() {
     accounts: store.accounts,
     categories: store.categories,
     budgets: store.budgets,
+    recurring: store.recurring,
     settings: store.settings
   }))
 }
@@ -169,9 +172,7 @@ export function removeCategory(id) {
   store.categories = store.categories.filter((c) => c.id !== id)
   store.budgets = store.budgets.filter((b) => b.id !== id)
   return true
-}
-
-/* —— 预算:分类月度预算(b.id 即 categoryId,amount 为每月额度) —— */
+}/* —— 预算:分类月度预算(b.id 即 categoryId,amount 为每月额度) —— */
 export function setBudget(categoryId, amount) {
   const v = Math.max(0, Math.round((Number(amount) || 0) * 100) / 100)
   const i = store.budgets.findIndex((b) => b.id === categoryId)
@@ -197,7 +198,63 @@ export function budgetStatus(mKey) {
     }
     rows.push({ categoryId: b.id, name: cat.name, icon: cat.icon, budget: b.amount, spent, remain: b.amount - spent })
   }
-  return rows.sort((a, b) => a.remain / a.budget - b.remain / b.budget)
+  return rows.sort((a, b) => a.remain / b.budget - b.remain / b.budget)
+}
+
+/* —— 周期账单/订阅:cycle 为 monthly | quarterly | yearly,nextDate 为 'YYYY-MM-DD' —— */
+export function upsertRecurring(r) {
+  const i = store.recurring.findIndex((x) => x.id === r.id)
+  const item = { active: true, ...r, updatedAt: Date.now() }
+  if (i >= 0) store.recurring[i] = item
+  else store.recurring.push({ ...item, id: r.id || uid(), createdAt: Date.now() })
+}
+export function removeRecurring(id) {
+  store.recurring = store.recurring.filter((r) => r.id !== id)
+}
+
+/** 待缴账单:active 且 30 天内到期(含逾期),按到期日排序 */
+export function upcomingBills(days = 30) {
+  const today = nowDateKey()
+  return store.recurring
+    .filter((r) => r.active && r.nextDate <= addDays(today, days))
+    .sort((a, b) => a.nextDate.localeCompare(b.nextDate))
+}
+
+/** 活跃周期账单折算的每月固定支出 */
+export function monthlyFixed() {
+  let sum = 0
+  for (const r of store.recurring) {
+    if (!r.active) continue
+    sum += r.amount * (CYCLES[r.cycle]?.perMonth || 1)
+  }
+  return Math.round(sum * 100) / 100
+}
+
+/** 一键缴账:入账一笔并推进 nextDate(顺带追平逾期周期) */
+export function payRecurring(id) {
+  const r = store.recurring.find((x) => x.id === id)
+  if (!r) return null
+  const cat = categoryById(r.categoryId) || store.categories.find((c) => c.isFallback && c.kind === 'expense')
+  const acc = accountById(r.accountId) || store.accounts[0]
+  const tx = {
+    id: uid(),
+    type: 'expense',
+    amount: r.amount,
+    categoryId: cat?.id || null,
+    accountId: acc?.id || null,
+    date: toLocalISO(),
+    payee: r.name,
+    note: '周期账单',
+    tags: [],
+    source: 'recurring',
+    updatedAt: Date.now()
+  }
+  store.txs.push(tx)
+  let next = r.nextDate
+  while (next <= nowDateKey()) next = advanceCycle(next, r.cycle)
+  r.nextDate = next
+  r.updatedAt = Date.now()
+  return tx
 }
 
 /* —— 查询 —— */
@@ -261,7 +318,7 @@ export function importFromRows(rows) {
 export function exportJSON() {
   return JSON.stringify({
     app: 'inkledger', version: 1, exportedAt: new Date().toISOString(),
-    txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets
+    txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring
   }, null, 2)
 }
 export function importJSON(text) {
@@ -271,6 +328,7 @@ export function importJSON(text) {
   store.accounts = data.accounts
   store.categories = data.categories?.length ? data.categories : defaultState().categories
   store.budgets = Array.isArray(data.budgets) ? data.budgets : []
+  store.recurring = Array.isArray(data.recurring) ? data.recurring : []
   showToast('数据已导入')
 }
 export function clearAll() {
@@ -279,12 +337,16 @@ export function clearAll() {
   store.accounts = base.accounts
   store.categories = base.categories
   store.budgets = []
+  store.recurring = []
   showToast('已清空全部账目')
 }
 
 /* —— 合并（同步用）：按 id 合并，updatedAt 新者胜 —— */
 export function mergeCloud(local, cloud) {
-  if (!cloud) return { txs: local.txs, accounts: local.accounts, categories: local.categories, budgets: local.budgets || [] }
+  if (!cloud) return {
+    txs: local.txs, accounts: local.accounts, categories: local.categories,
+    budgets: local.budgets || [], recurring: local.recurring || []
+  }
   const mergeArr = (a = [], b = []) => {
     const map = new Map()
     for (const item of [...a, ...b]) {
@@ -297,7 +359,8 @@ export function mergeCloud(local, cloud) {
     txs: mergeArr(local.txs, cloud.txs),
     accounts: mergeArr(local.accounts, cloud.accounts),
     categories: mergeArr(local.categories, cloud.categories),
-    budgets: mergeArr(local.budgets || [], cloud.budgets || [])
+    budgets: mergeArr(local.budgets || [], cloud.budgets || []),
+    recurring: mergeArr(local.recurring || [], cloud.recurring || [])
   }
 }
 
@@ -316,17 +379,18 @@ export async function syncToGitHub() {
 
   const cloud = await readData(token, owner, repoName)
   const merged = mergeCloud(
-    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets },
+    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring },
     cloud.data
   )
   store.txs = merged.txs
   store.accounts = merged.accounts
   store.categories = merged.categories
   store.budgets = merged.budgets
+  store.recurring = merged.recurring
 
   await writeData(token, owner, repoName, {
     app: 'inkledger', version: 1, syncedAt: new Date().toISOString(),
-    txs: merged.txs, accounts: merged.accounts, categories: merged.categories, budgets: merged.budgets
+    txs: merged.txs, accounts: merged.accounts, categories: merged.categories, budgets: merged.budgets, recurring: merged.recurring
   }, cloud.sha)
 
   store.settings.github = { token, login: owner, repo: repoName }
@@ -383,6 +447,20 @@ export function loadSample() {
   for (const [name, amount] of Object.entries(demoBudgets)) {
     const id = store.categories.find((c) => c.name === name)?.id
     if (id) setBudget(id, amount)
+  }
+  // 演示周期账单:相对今天错开,保证近期总有待缴项
+  const demoRecurring = [
+    ['视频会员', 25, 'monthly', '娱乐影音', 2],
+    ['手机话费', 39, 'monthly', '通讯', 9],
+    ['云服务器', 138, 'yearly', '数字服务', 21]
+  ]
+  for (const [name, amount, cycle, catName, inDays] of demoRecurring) {
+    upsertRecurring({
+      id: uid(), name, amount, cycle, active: true,
+      categoryId: store.categories.find((c) => c.name === catName)?.id || null,
+      accountId: acc('微信零钱') || store.accounts[0]?.id,
+      nextDate: addDays(nowDateKey(), inDays)
+    })
   }
   showToast(`已生成 ${txs.length} 笔示例账目，可在设置中一键清空`)
 }
