@@ -2,8 +2,9 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { importBill, parseBill, detectBill } from '../src/lib/importer.js'
+import { importBill, importRows, parseBill, detectBill } from '../src/lib/importer.js'
 import { parseCSV } from '../src/lib/csv.js'
+import { isXlsx, parseXlsxRows } from '../src/lib/xlsx.js'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 let failed = 0
@@ -78,6 +79,32 @@ console.log('\n[坏文件]')
 let threw = false
 try { parseBill('随便,一个\n1,2') } catch { threw = true }
 ok(threw, '非账单文件抛出友好错误')
+
+console.log('\n[微信 xlsx 账单（新版导出格式）]')
+const xlsxBuf = readFileSync(join(dir, 'fixtures/wechat-bill.xlsx'))
+ok(isXlsx(xlsxBuf.buffer.slice(xlsxBuf.byteOffset, xlsxBuf.byteOffset + xlsxBuf.byteLength)), 'zip 魔数识别为 xlsx')
+const xlsxRows = await parseXlsxRows(xlsxBuf.buffer.slice(xlsxBuf.byteOffset, xlsxBuf.byteOffset + xlsxBuf.byteLength))
+ok(xlsxRows.length === 24, `xlsx 解析出 24 行（含 15 行说明+表头+8 数据），实际 ${xlsxRows.length}`)
+ok(xlsxRows[15][0] === '交易时间', 'xlsx 表头行定位正确')
+
+const rx = importRows(xlsxRows, { accounts: JSON.parse(JSON.stringify(accounts)), categories, existingKeys: new Set() })
+ok(rx.platform === 'wechat', 'xlsx：识别为微信账单')
+ok(rx.txs.length === 6, `xlsx：6 笔有效（4支出+2收入，重复表头被预过滤），实际 ${rx.txs.length}`)
+ok(rx.skipped === 1, `xlsx：跳过 1 笔中性提现，实际 ${rx.skipped}`)
+const tRed = rx.txs.find((t) => t.payee.includes('张三'))
+ok(tRed && tRed.payee === '发给张三  联系电话13800000000', 'xlsx：商户名保留（含尾随空格）')
+const tPdd = rx.txs.find((t) => t.payee.includes('拼多多'))
+ok(tPdd?.type === 'income' && tPdd?.accountId === 'acc-wechat', 'xlsx：支付方式"/"的红包收入记入微信零钱')
+const tRefund = rx.txs.find((t) => t.payee === '美团')
+ok(tRefund?.note.includes('已退款'), 'xlsx：全额退款标注')
+ok(!tRed.note.includes('/'), 'xlsx：商品"/"不进入备注')
+const tBank = rx.txs.find((t) => t.payee === '地铁乘车码')
+const bankAcc = rx.createdAccounts.find((a) => /1234/.test(a.name))
+ok(!!bankAcc && tBank?.accountId === bankAcc.id, 'xlsx：银行卡按名称建户且储蓄卡支付复用（与提现行同尾号）')
+ok(rx.txs.filter((t) => t.accountId === 'acc-wechat').length === 5, 'xlsx：零钱支付 5 笔（含"/"默认零钱）')
+const xKeys = new Set(rx.txs.map((t) => t.sourceKey))
+const rx2 = importRows(xlsxRows, { accounts, categories, existingKeys: xKeys })
+ok(rx2.txs.length === 0, 'xlsx：重复导入 0 笔')
 
 if (failed) {
   console.error(`\n✗ ${failed} 个断言失败\n`)

@@ -3,7 +3,7 @@
  */
 import { reactive, watch } from 'vue'
 import { uid, toLocalISO, monthKey } from './lib/format.js'
-import { importBill } from './lib/importer.js'
+import { importBill, importRows } from './lib/importer.js'
 import { getUser, ensureRepo, readData, writeData } from './lib/github.js'
 
 const KEY = 'inkledger:v1'
@@ -183,6 +183,18 @@ export function balanceOf(accountId) {
 /* —— 账单导入 —— */
 export function importFromText(text) {
   const res = importBill(text, {
+    accounts: store.accounts,
+    categories: store.categories,
+    existingKeys: existingSourceKeys()
+  })
+  for (const a of res.createdAccounts) store.accounts.push(a)
+  store.txs.push(...res.txs)
+  return res
+}
+
+/** xlsx 等结构化行数组的导入入口 */
+export function importFromRows(rows) {
+  const res = importRows(rows, {
     accounts: store.accounts,
     categories: store.categories,
     existingKeys: existingSourceKeys()

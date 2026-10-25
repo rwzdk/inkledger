@@ -2,10 +2,11 @@
 import { ref, computed } from 'vue'
 import {
   store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory,
-  importFromText, exportJSON, importJSON, clearAll, loadSample, balanceOf,
+  importFromText, importFromRows, exportJSON, importJSON, clearAll, loadSample, balanceOf,
   syncToGitHub, defaultRepoName
 } from '../store.js'
 import { getUser } from '../lib/github.js'
+import { isXlsx, parseXlsxRows } from '../lib/xlsx.js'
 import { fmtMoney, ACCOUNT_META } from '../lib/format.js'
 import { decodeBuffer } from '../lib/csv.js'
 
@@ -23,8 +24,11 @@ async function onBillFile(e) {
   if (!file) return
   importing.value = true
   try {
-    const text = decodeBuffer(await file.arrayBuffer())
-    const res = importFromText(text)
+    const buf = await file.arrayBuffer()
+    // 微信新版导出为 xlsx，旧版邮件导出为 CSV，按 zip 魔数自动分流
+    const res = isXlsx(buf)
+      ? importFromRows(await parseXlsxRows(buf))
+      : importFromText(decodeBuffer(buf))
     const srcName = res.platform === 'wechat' ? '微信' : '支付宝'
     showToast(`已从${srcName}账单导入 ${res.txs.length} 笔（跳过 ${res.skipped} 笔重复/无效）`
       + (res.createdAccounts.length ? `，新增来源账户 ${res.createdAccounts.length} 个` : ''))
