@@ -7,7 +7,7 @@
 PWA · 微信 / 支付宝账单导入 · GitHub 私有仓库同步 · 自动归类
 
 [![GitHub stars](https://img.shields.io/github/stars/rwzdk/inkledger?style=flat-square&color=gold)](https://github.com/rwzdk/inkledger/stargazers)
-[![version](https://img.shields.io/badge/version-1.4.0-gold?style=flat-square)](./README.md#-更新日志)
+[![version](https://img.shields.io/badge/version-1.5.0-gold?style=flat-square)](./README.md#-更新日志)
 [![License: MIT](https://img.shields.io/badge/License-MIT-gold?style=flat-square)](./LICENSE)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -104,6 +104,14 @@ Token 与数据都不会离开你的浏览器到任何第三方服务器（仅 G
 欢迎 Issue 与 PR。提交前请跑 `pnpm test && pnpm build`。
 
 ## 📝 更新日志
+
+### v1.5.0（2026-10-26）
+
+- **feat**：**信封式预算结转**（参考 Actual Budget）——分类预算可开启「结转」，未用完额度滚入下月、超支扣减后续信封；额度修改不重置基线，首页预算卡实时按信封口径展示
+- **feat**：**储蓄目标**（参考 Firefly III 存钱罐）——目标进度条、按目标月倒推月存额、首页快捷存入；纯进度追踪，不影响账户余额与总资产
+- **feat**：**资产走势**（参考 Sossoldi / Wealthfolio）——统计页新增月度净值曲线与当前总资产（按账户余额推算，含信用卡负债）
+- **feat**：**标签增强**——统计页新增标签排行（多标签分别计入并注明），记一笔标签输入自动补全（高频 Top 20）
+- 全部纯前端实现；目标数据随 GitHub 同步与 JSON 备份；老数据零迁移兼容
 
 ### v1.4.0（2026-10-26）
 
