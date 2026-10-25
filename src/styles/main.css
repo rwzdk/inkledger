@@ -194,6 +194,9 @@ body {
   color: var(--text-faint);
 }
 
+/* 侧边栏默认隐藏（移动端），≥900px 由下方媒体查询恢复为侧栏显示 */
+.sidenav { display: none; }
+
 /* —— 底部标签栏（移动端） —— */
 .tabbar {
   position: fixed;
