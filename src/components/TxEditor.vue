@@ -7,6 +7,8 @@ const props = defineProps({ init: Object })
 const emit = defineEmits(['close'])
 
 const isNew = computed(() => !props.init?.id)
+// 注意：props.init 可能是 store 中的响应式代理，structuredClone 会抛
+// DataCloneError，账目数据本身是纯 JSON，用 JSON 深拷贝即可
 const form = ref({
   type: 'expense',
   amount: '',
@@ -17,7 +19,7 @@ const form = ref({
   payee: '',
   note: '',
   tags: [],
-  ...structuredClone(props.init || {})
+  ...JSON.parse(JSON.stringify(props.init || {}))
 })
 form.value.amount = props.init ? String(props.init.amount ?? '') : ''
 
