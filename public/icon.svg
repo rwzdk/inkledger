@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1c24"/>
+      <stop offset="1" stop-color="#0d0e13"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2c66d"/>
+      <stop offset="1" stop-color="#d99a3d"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="26" fill="none" stroke="url(#gold)" stroke-opacity="0.35" stroke-width="2"/>
+  <!-- 墨点 -->
+  <circle cx="64" cy="42" r="20" fill="url(#gold)"/>
+  <circle cx="64" cy="42" r="26" fill="none" stroke="url(#gold)" stroke-opacity="0.25" stroke-width="3"/>
+  <!-- 账目横线 -->
+  <rect x="34" y="74" width="60" height="6" rx="3" fill="#e8e6df" fill-opacity="0.9"/>
+  <rect x="42" y="88" width="44" height="6" rx="3" fill="#e8e6df" fill-opacity="0.45"/>
+  <rect x="50" y="102" width="28" height="6" rx="3" fill="#e8e6df" fill-opacity="0.22"/>
+</svg>
