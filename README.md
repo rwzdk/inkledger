@@ -7,6 +7,7 @@
 PWA · 微信 / 支付宝账单导入 · GitHub 私有仓库同步 · 自动归类
 
 [![GitHub stars](https://img.shields.io/github/stars/rwzdk/inkledger?style=flat-square&color=gold)](https://github.com/rwzdk/inkledger/stargazers)
+[![version](https://img.shields.io/badge/version-1.0.1-gold?style=flat-square)](./README.md#-更新日志)
 [![License: MIT](https://img.shields.io/badge/License-MIT-gold?style=flat-square)](./LICENSE)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -25,7 +26,9 @@ PWA · 微信 / 支付宝账单导入 · GitHub 私有仓库同步 · 自动归�
 - **微信 / 支付宝账单导入**：上传官方导出的账单 CSV，自动识别消费来源账户、按关键词自动归类、按交易单号去重
 - **离线可用**：PWA + Service Worker，记账这件事不需要网络
 
-> 🌐 **在线体验**：[rwzdk.github.io/inkledger/#demo](https://rwzdk.github.io/inkledger/#demo)（`#demo` 会自动载入示例数据）
+> 🌐 **在线体验**：[rwzdk.github.io/inkledger/#demo](https://rwzdk.github.io/inkledger/#demo)（`#demo` 会自动载入示例数据；深链 `#stats` / `#settings` / `#add` / `#light` 可直达对应视图）
+>
+> 另有 Qoder Sites 私有部署：`inkledger-j8vzdjdlheu.qoder.website`（需 Qoder 账号登录访问）
 
 ## 界面预览
 
@@ -99,6 +102,19 @@ Token 与数据都不会离开你的浏览器到任何第三方服务器（仅 G
 ## 🤝 贡献
 
 欢迎 Issue 与 PR。提交前请跑 `pnpm test && pnpm build`。
+
+## 📝 更新日志
+
+### v1.0.1（2026-10-25）
+
+GUI 黑盒功能测试后的问题修复：
+
+- **fix**：点击已有账目无法打开编辑弹层，导致编辑/删除不可用——`TxEditor` 对 Vue 响应式对象使用 `structuredClone` 抛 `DataCloneError`，改为 JSON 深拷贝
+- **fix**：移动端（<900px）桌面侧边栏未隐藏、堆叠在页面顶部——补充 `.sidenav` 基础 `display:none` 规则
+
+### v1.0.0（2026-10-25）
+
+首个版本：记账（支出/收入/转账）、微信/支付宝账单导入、统计图表、GitHub 私有仓库同步、夜墨/宣纸双主题、PWA 离线可用。
 
 ## 📄 许可证
 
