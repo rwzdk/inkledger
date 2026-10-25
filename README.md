@@ -7,7 +7,7 @@
 PWA · 微信 / 支付宝账单导入 · GitHub 私有仓库同步 · 自动归类
 
 [![GitHub stars](https://img.shields.io/github/stars/rwzdk/inkledger?style=flat-square&color=gold)](https://github.com/rwzdk/inkledger/stargazers)
-[![version](https://img.shields.io/badge/version-1.1.0-gold?style=flat-square)](./README.md#-更新日志)
+[![version](https://img.shields.io/badge/version-1.2.0-gold?style=flat-square)](./README.md#-更新日志)
 [![License: MIT](https://img.shields.io/badge/License-MIT-gold?style=flat-square)](./LICENSE)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -104,6 +104,12 @@ Token 与数据都不会离开你的浏览器到任何第三方服务器（仅 G
 欢迎 Issue 与 PR。提交前请跑 `pnpm test && pnpm build`。
 
 ## 📝 更新日志
+
+### v1.2.0（2026-10-25）
+
+- **feat**：全站图标升级为 **Lucide 线性图标库**（统一 24×24 描边风格、颜色跟随主题）——导航、统计、记一笔、设置、主题切换、搜索、转账及全部分类与账户图标不再依赖 emoji，跨平台显示一致
+- **feat**：新增图标注册表 `src/lib/icons.js` 与 `AppIcon` / `DataIcon` 组件；分类编辑器改为**图标点选器**（21 个语义图标）
+- **compat**：旧数据兼容——已保存的分类若仍是默认 emoji 图标会自动升级为线性图标，自定义图标保持不变
 
 ### v1.1.0（2026-10-25）
 
