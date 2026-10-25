@@ -227,7 +227,15 @@ body {
 }
 .tabbar__item--on { color: var(--gold); }
 .tabbar__item--on .tabbar__icon { transform: translateY(-1px); }
-.tabbar__icon { font-size: 20px; transition: transform 0.15s; }
+.tabbar__icon { display: flex; justify-content: center; transition: transform 0.15s; }
+.tabbar__item--gold .tabbar__icon { color: var(--gold); }
+
+/* —— 线性图标(AppIcon)通用约束 —— */
+.app-icon { display: block; flex: none; }
+.data-icon__text { line-height: 1; }
+
+/* 带图标的按钮 */
+.btn--ico { display: inline-flex; align-items: center; gap: 7px; }
 
 /* —— 桌面端侧栏 —— */
 @media (min-width: 900px) {
@@ -278,6 +286,7 @@ body {
     background: var(--card);
     border-color: var(--gold-line);
   }
+  .sidenav__ico { display: inline-flex; width: 20px; justify-content: center; }
   .shell { margin-left: 240px; max-width: calc(var(--maxw) + 240px); }
 }
 

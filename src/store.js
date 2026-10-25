@@ -16,30 +16,30 @@ const seedAccounts = [
   { id: 'acc-bank', name: '银行卡', type: 'bank', initialBalance: 0 }
 ].map((a) => ({ ...a, createdAt: Date.now(), updatedAt: Date.now() }))
 
-/* —— 默认分类：keywords 用于账单导入自动归类 —— */
+/* —— 默认分类:keywords 用于账单导入自动归类;icon 为图标注册表键(lib/icons.js) —— */
 const seedCategories = [
-  ['餐饮', '🍜', 'expense', ['美团', '饿了么', '肯德基', '麦当劳', '星巴克', '瑞幸', '餐厅', '面馆', '外卖', '烧烤', '奶茶', '蜜雪', '喜茶', '食品', '食堂', '饭店']],
-  ['交通出行', '🚇', 'expense', ['地铁', '公交', '滴滴', '打车', '出租车', '12306', '铁路', '航空', '机票', '高德', '哈啰', '单车', '加油', '停车']],
-  ['购物', '🛒', 'expense', ['淘宝', '天猫', '京东', '拼多多', '苏宁', '唯品会', '超市', '便利店', '711', '全家', '罗森']],
-  ['水果生鲜', '🥬', 'expense', ['买菜', '水果', '生鲜', '叮咚', '盒马', '山姆', '朴朴']],
-  ['日用家居', '🧻', 'expense', ['日用', '家居', '百货', '保洁', '收纳']],
-  ['居住水电', '🏠', 'expense', ['房租', '水费', '电费', '燃气', '物业', '暖气', '宽带', '水电']],
-  ['通讯', '📱', 'expense', ['话费', '移动', '联通', '电信', '流量', '运营商']],
-  ['娱乐影音', '🎮', 'expense', ['游戏', 'Steam', '视频会员', '爱奇艺', '腾讯视频', '优酷', 'B站', '哔哩', '电影', '猫眼', '淘票票', 'KTV', '网抑', '网易云']],
-  ['数字服务', '☁️', 'expense', ['会员', '订阅', '云服务', 'Apple', 'App Store', '软件', '域名', '服务器']],
-  ['服饰美容', '👔', 'expense', ['优衣库', 'ZARA', '衣服', '服饰', '美妆', '理发', '护肤', '洗剪吹']],
-  ['医疗健康', '💊', 'expense', ['药房', '药店', '医院', '挂号', '体检', '诊所', '医药']],
-  ['教育学习', '📚', 'expense', ['教育', '课程', '培训', '书本', '考试', '书店']],
-  ['人情往来', '🧧', 'expense', ['红包', '转账', '份子', '礼物', '随礼']],
-  ['宠物', '🐾', 'expense', ['宠物', '猫', '狗', '宠物医院', '猫粮', '狗粮']],
-  ['旅行', '🧳', 'expense', ['酒店', '民宿', '旅行', '旅游', '携程', '去哪儿', '飞猪', '景区']],
-  ['其他支出', '📌', 'expense', []],
-  ['工资薪酬', '💰', 'income', ['工资', '薪酬', '薪水', '月薪', '奖金', '年终奖']],
-  ['兼职外快', '🧰', 'income', ['兼职', '外快', '稿费', '劳务']],
-  ['理财收益', '📈', 'income', ['利息', '收益', '分红', '理财', '基金', '股票', '余额宝']],
-  ['收到的红包', '🧧', 'income', ['红包', '亲属卡', '转账']],
-  ['退款返还', '↩️', 'income', ['退款', '退货', '返现', '报销']],
-  ['其他收入', '📌', 'income', []]
+  ['餐饮', ':food', 'expense', ['美团', '饿了么', '肯德基', '麦当劳', '星巴克', '瑞幸', '餐厅', '面馆', '外卖', '烧烤', '奶茶', '蜜雪', '喜茶', '食品', '食堂', '饭店']],
+  ['交通出行', ':transport', 'expense', ['地铁', '公交', '滴滴', '打车', '出租车', '12306', '铁路', '航空', '机票', '高德', '哈啰', '单车', '加油', '停车']],
+  ['购物', ':shopping', 'expense', ['淘宝', '天猫', '京东', '拼多多', '苏宁', '唯品会', '超市', '便利店', '711', '全家', '罗森']],
+  ['水果生鲜', ':grocery', 'expense', ['买菜', '水果', '生鲜', '叮咚', '盒马', '山姆', '朴朴']],
+  ['日用家居', ':household', 'expense', ['日用', '家居', '百货', '保洁', '收纳']],
+  ['居住水电', ':housing', 'expense', ['房租', '水费', '电费', '燃气', '物业', '暖气', '宽带', '水电']],
+  ['通讯', ':telecom', 'expense', ['话费', '移动', '联通', '电信', '流量', '运营商']],
+  ['娱乐影音', ':media', 'expense', ['游戏', 'Steam', '视频会员', '爱奇艺', '腾讯视频', '优酷', 'B站', '哔哩', '电影', '猫眼', '淘票票', 'KTV', '网抑', '网易云']],
+  ['数字服务', ':digital', 'expense', ['会员', '订阅', '云服务', 'Apple', 'App Store', '软件', '域名', '服务器']],
+  ['服饰美容', ':fashion', 'expense', ['优衣库', 'ZARA', '衣服', '服饰', '美妆', '理发', '护肤', '洗剪吹']],
+  ['医疗健康', ':health', 'expense', ['药房', '药店', '医院', '挂号', '体检', '诊所', '医药']],
+  ['教育学习', ':education', 'expense', ['教育', '课程', '培训', '书本', '考试', '书店']],
+  ['人情往来', ':gifting', 'expense', ['红包', '转账', '份子', '礼物', '随礼']],
+  ['宠物', ':pet', 'expense', ['宠物', '猫', '狗', '宠物医院', '猫粮', '狗粮']],
+  ['旅行', ':travel', 'expense', ['酒店', '民宿', '旅行', '旅游', '携程', '去哪儿', '飞猪', '景区']],
+  ['其他支出', ':other', 'expense', []],
+  ['工资薪酬', ':salary', 'income', ['工资', '薪酬', '薪水', '月薪', '奖金', '年终奖']],
+  ['兼职外快', ':sidegig', 'income', ['兼职', '外快', '稿费', '劳务']],
+  ['理财收益', ':invest', 'income', ['利息', '收益', '分红', '理财', '基金', '股票', '余额宝']],
+  ['收到的红包', ':redpacket', 'income', ['红包', '亲属卡', '转账']],
+  ['退款返还', ':refund', 'income', ['退款', '退货', '返现', '报销']],
+  ['其他收入', ':other', 'income', []]
 ].map(([name, icon, kind, keywords], i) => ({
   id: `cat-${kind}-${i}`,
   name, icon, kind, keywords,
@@ -47,6 +47,26 @@ const seedCategories = [
   createdAt: Date.now(),
   updatedAt: Date.now()
 }))
+
+/* 旧版默认 emoji 图标 → 线性图标键:仅当用户未改动过该分类图标时静默升级 */
+const ICON_UPGRADE = {
+  '餐饮': ['🍜', ':food'], '交通出行': ['🚇', ':transport'], '购物': ['🛒', ':shopping'],
+  '水果生鲜': ['🥬', ':grocery'], '日用家居': ['🧻', ':household'], '居住水电': ['🏠', ':housing'],
+  '通讯': ['📱', ':telecom'], '娱乐影音': ['🎮', ':media'], '数字服务': ['☁️', ':digital'],
+  '服饰美容': ['👔', ':fashion'], '医疗健康': ['💊', ':health'], '教育学习': ['📚', ':education'],
+  '人情往来': ['🧧', ':gifting'], '宠物': ['🐾', ':pet'], '旅行': ['🧳', ':travel'],
+  '其他支出': ['📌', ':other'], '工资薪酬': ['💰', ':salary'], '兼职外快': ['🧰', ':sidegig'],
+  '理财收益': ['📈', ':invest'], '收到的红包': ['🧧', ':redpacket'], '退款返还': ['↩️', ':refund'],
+  '其他收入': ['📌', ':other']
+}
+
+function upgradeIcons(categories = []) {
+  for (const c of categories) {
+    const pair = ICON_UPGRADE[c.name]
+    if (pair && c.icon === pair[0]) c.icon = pair[1]
+  }
+  return categories
+}
 
 function defaultState() {
   return {
@@ -70,7 +90,7 @@ function load() {
     return {
       txs: saved.txs || [],
       accounts: saved.accounts?.length ? saved.accounts : base.accounts,
-      categories: saved.categories?.length ? saved.categories : base.categories,
+      categories: saved.categories?.length ? upgradeIcons(saved.categories) : base.categories,
       settings: { ...base.settings, ...saved.settings, github: { ...base.settings.github, ...saved.settings?.github } }
     }
   } catch {

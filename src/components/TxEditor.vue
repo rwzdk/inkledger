@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { store, addTx, updateTx, removeTx, showToast } from '../store.js'
 import { fmtMoney, toLocalISO } from '../lib/format.js'
+import DataIcon from './DataIcon.vue'
 
 const props = defineProps({ init: Object })
 const emit = defineEmits(['close'])
@@ -106,7 +107,7 @@ function del() {
             class="catgrid__item" :class="{ 'catgrid__item--on': form.categoryId === c.id }"
             @click="form.categoryId = c.id"
           >
-            <span class="catgrid__icon">{{ c.icon }}</span>
+            <span class="catgrid__icon"><DataIcon :icon="c.icon" :size="20" /></span>
             <span>{{ c.name }}</span>
           </button>
         </div>

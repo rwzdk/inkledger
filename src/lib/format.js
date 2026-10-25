@@ -58,12 +58,12 @@ export function fmtMoney(n, { sign = '' } = {}) {
 
 export const fmtPct = (n) => `${(n * 100).toFixed(1)}%`
 
-/** 账户类型 → 展示信息 */
+/** 账户类型 → 展示信息(icon 为图标注册表键,见 lib/icons.js) */
 export const ACCOUNT_META = {
-  wechat: { icon: '💬', label: '微信' },
-  alipay: { icon: '🅰️', label: '支付宝' },
-  cash: { icon: '💵', label: '现金' },
-  bank: { icon: '🏦', label: '银行卡' },
-  credit: { icon: '💳', label: '信用卡' },
-  other: { icon: '📦', label: '其他' }
+  wechat: { icon: ':wechat', label: '微信' },
+  alipay: { icon: ':alipay', label: '支付宝' },
+  cash: { icon: ':cash', label: '现金' },
+  bank: { icon: ':bank', label: '银行卡' },
+  credit: { icon: ':credit', label: '信用卡' },
+  other: { icon: ':acc-other', label: '其他' }
 }

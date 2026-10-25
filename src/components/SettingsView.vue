@@ -9,6 +9,9 @@ import { getUser } from '../lib/github.js'
 import { isXlsx, parseXlsxRows } from '../lib/xlsx.js'
 import { fmtMoney, ACCOUNT_META } from '../lib/format.js'
 import { decodeBuffer } from '../lib/csv.js'
+import { CATEGORY_ICON_KEYS } from '../lib/icons.js'
+import AppIcon from './AppIcon.vue'
+import DataIcon from './DataIcon.vue'
 
 /* —— 主题 —— */
 function setTheme(t) {
@@ -85,7 +88,7 @@ function saveAccount() {
 /* —— 分类管理 —— */
 const catKind = ref('expense')
 const catForm = ref(null)
-function newCategory() { catForm.value = { id: '', name: '', icon: '📌', kind: catKind.value, keywords: [] } }
+function newCategory() { catForm.value = { id: '', name: '', icon: ':other', kind: catKind.value, keywords: [] } }
 const catKeywordInput = ref('')
 function addCatKeyword() {
   const k = catKeywordInput.value.trim()
@@ -167,7 +170,7 @@ function doClear() {
   <div class="sec-title">账户（消费来源）</div>
   <section class="card">
     <div v-for="a in store.accounts" :key="a.id" class="row-line">
-      <span class="row-line__icon">{{ ACCOUNT_META[a.type]?.icon || '📦' }}</span>
+      <span class="row-line__icon"><DataIcon :icon="ACCOUNT_META[a.type]?.icon || ':acc-other'" :size="18" /></span>
       <span class="row-line__body">
         <b>{{ a.name }}</b>
         <small>{{ ACCOUNT_META[a.type]?.label || '其他' }} · 余额 <span class="num">{{ fmtMoney(balanceOf(a.id)) }}</span></small>
@@ -185,7 +188,7 @@ function doClear() {
       <button class="seg__item" :class="{ 'seg__item--on': catKind === 'income' }" @click="catKind = 'income'">收入</button>
     </div>
     <div v-for="c in store.categories.filter((c) => c.kind === catKind)" :key="c.id" class="row-line">
-      <span class="row-line__icon">{{ c.icon }}</span>
+      <span class="row-line__icon"><DataIcon :icon="c.icon" :size="18" /></span>
       <span class="row-line__body">
         <b>{{ c.name }}</b>
         <small>{{ c.keywords?.length ? c.keywords.slice(0, 6).join(' / ') + (c.keywords.length > 6 ? ' …' : '') : '无自动归类关键词' }}</small>
@@ -212,11 +215,11 @@ function doClear() {
   <!-- 外观 -->
   <div class="sec-title">外观</div>
   <section class="card row">
-    <button class="btn" :class="{ 'btn--on': store.settings.theme === 'dark' }" @click="setTheme('dark')">🌙 夜墨</button>
-    <button class="btn" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')">☀️ 宣纸</button>
+    <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'dark' }" @click="setTheme('dark')"><AppIcon name="moon" :size="15" /> 夜墨</button>
+    <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')"><AppIcon name="sun" :size="15" /> 宣纸</button>
   </section>
 
-  <p class="about serif">墨账 InkLedger · v1.0 · 静态部署 · 数据自持</p>
+  <p class="about serif">墨账 InkLedger · v1.2 · 静态部署 · 数据自持</p>
 
   <!-- 账户编辑弹层 -->
   <Teleport to="body">
@@ -228,7 +231,7 @@ function doClear() {
           <input v-model="accForm.name" class="input" placeholder="如：招商银行储蓄卡(1234)" /></label>
         <label class="field" style="margin-top: 12px"><span class="field__label">类型</span>
           <select v-model="accForm.type" class="select">
-            <option v-for="(m, k) in ACCOUNT_META" :key="k" :value="k">{{ m.icon }} {{ m.label }}</option>
+            <option v-for="(m, k) in ACCOUNT_META" :key="k" :value="k">{{ m.label }}</option>
           </select></label>
         <label class="field" style="margin-top: 12px"><span class="field__label">初始余额</span>
           <input v-model="accForm.initialBalance" class="input num" type="number" step="0.01" /></label>
@@ -251,10 +254,23 @@ function doClear() {
         <h3 class="sheet__title">{{ catForm.id ? '编辑分类' : '新增分类' }}
           <button class="sheet__close" @click="catForm = null">✕</button></h3>
         <div class="row">
-          <label class="field" style="width: 90px"><span class="field__label">图标</span>
-            <input v-model="catForm.icon" class="input" style="text-align: center; font-size: 18px" /></label>
           <label class="field" style="flex: 1"><span class="field__label">名称</span>
             <input v-model="catForm.name" class="input" placeholder="如：宠物" /></label>
+        </div>
+        <div class="field" style="margin-top: 12px">
+          <span class="field__label">图标</span>
+          <div class="icon-picker">
+            <button
+              v-for="k in CATEGORY_ICON_KEYS" :key="k"
+              type="button"
+              class="icon-picker__item"
+              :class="{ 'icon-picker__item--on': catForm.icon === ':' + k }"
+              @click="catForm.icon = ':' + k"
+            ><AppIcon :name="k" :size="18" /></button>
+          </div>
+          <small v-if="!CATEGORY_ICON_KEYS.some((k) => catForm.icon === ':' + k)" class="icon-picker__hint">
+            当前为自定义图标 {{ catForm.icon }},从上方选择可替换为线性图标
+          </small>
         </div>
         <label class="field" style="margin-top: 12px"><span class="field__label">自动归类关键词（导入账单时按商户/商品匹配）</span>
           <div class="tags-row">
@@ -306,6 +322,18 @@ function doClear() {
 .tags-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .tags-row .tag { cursor: pointer; }
 .tags-input { flex: 1; min-width: 130px; width: auto; }
+
+.icon-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.icon-picker__item {
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px 0; border-radius: var(--radius-s);
+  border: 1px solid var(--line); background: var(--card-2);
+  color: var(--text-dim); cursor: pointer;
+  transition: all 0.12s;
+}
+.icon-picker__item:hover { color: var(--text); border-color: var(--line-strong); }
+.icon-picker__item--on { border-color: var(--gold-line); background: var(--gold-soft); color: var(--gold); }
+.icon-picker__hint { color: var(--text-faint); font-size: 12px; margin-top: 6px; }
 
 .btn--on { border-color: var(--gold-line); color: var(--gold); background: var(--gold-soft); }
 .about { text-align: center; color: var(--text-faint); font-size: 13px; letter-spacing: 3px; margin: 34px 0 6px; }

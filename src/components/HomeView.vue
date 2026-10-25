@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { store, monthSummary, accountById, categoryById } from '../store.js'
 import { fmtMoney, monthKey, monthLabel, addMonths, fmtDay, weekLabel, nowDateKey, ACCOUNT_META } from '../lib/format.js'
+import AppIcon from './AppIcon.vue'
+import DataIcon from './DataIcon.vue'
 
 const emit = defineEmits(['edit'])
 
@@ -38,8 +40,7 @@ const groups = computed(() => {
   }))
 })
 
-function txIcon(t) {
-  if (t.type === 'transfer') return '🔁'
+function txCategoryIcon(t) {
   return categoryById(t.categoryId)?.icon || '📌'
 }
 function txTitle(t) {
@@ -56,8 +57,9 @@ function txSub(t) {
   return parts.join(' · ')
 }
 function accountBadge(t) {
-  const acc = accountById(t.type === 'transfer' ? t.accountId : t.accountId)
-  return acc ? (ACCOUNT_META[acc.type]?.icon || '') + (acc.type === 'wechat' ? '微信' : acc.type === 'alipay' ? '支付宝' : acc.name) : ''
+  const acc = accountById(t.accountId)
+  if (!acc) return ''
+  return acc.type === 'wechat' ? '微信' : acc.type === 'alipay' ? '支付宝' : acc.name
 }
 </script>
 
@@ -103,10 +105,13 @@ function accountBadge(t) {
       v-for="a in store.accounts" :key="a.id"
       class="chip" :class="{ 'chip--on': filterAccount === a.id }"
       @click="filterAccount = a.id"
-    >{{ ACCOUNT_META[a.type]?.icon }} {{ a.name }}</button>
+    ><DataIcon :icon="ACCOUNT_META[a.type]?.icon || ':acc-other'" :size="14" /> {{ a.name }}</button>
   </div>
 
-  <input v-model="keyword" class="input search" placeholder="🔍 搜索备注 / 商户 / 标签…" />
+  <div class="search-wrap">
+    <AppIcon name="search" :size="16" class="search-wrap__icon" />
+    <input v-model="keyword" class="input search" placeholder="搜索备注 / 商户 / 标签…" />
+  </div>
 
   <!-- 明细 -->
   <section v-for="g in groups" :key="g.day" class="daygroup">
@@ -120,7 +125,10 @@ function accountBadge(t) {
     </div>
     <div class="card list">
       <button v-for="t in g.list" :key="t.id" class="tx" @click="emit('edit', { tx: t })">
-        <span class="tx__icon">{{ txIcon(t) }}</span>
+        <span class="tx__icon">
+          <AppIcon v-if="t.type === 'transfer'" name="transfer" :size="17" />
+          <DataIcon v-else :icon="txCategoryIcon(t)" :size="18" />
+        </span>
         <span class="tx__body">
           <span class="tx__title">{{ txTitle(t) }}</span>
           <span class="tx__sub">
@@ -158,7 +166,12 @@ function accountBadge(t) {
 
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
-.search { margin: 2px 0 18px; }
+.search-wrap { position: relative; margin: 2px 0 18px; }
+.search-wrap .search { padding-left: 38px; }
+.search-wrap__icon {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint); pointer-events: none;
+}
 
 .daygroup { margin-bottom: 18px; }
 .daygroup__head {
