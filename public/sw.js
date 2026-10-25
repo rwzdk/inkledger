@@ -1,5 +1,5 @@
 /* 墨账 InkLedger Service Worker —— 离线可用的静态外壳缓存 */
-const VERSION = 'inkledger-v1.3'
+const VERSION = 'inkledger-v1.4'
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './favicon.svg']
 
 self.addEventListener('install', (e) => {
