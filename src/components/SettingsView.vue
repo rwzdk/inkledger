@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import {
   store, showToast, upsertAccount, removeAccount, upsertCategory, removeCategory, setBudget, budgetOf, toggleCarryover,
-  upsertRecurring, removeRecurring, upsertGoal, removeGoal,
+  upsertRecurring, removeRecurring, upsertGoal, removeGoal, upsertRule, removeRule, toggleRule,
   importFromText, importFromRows, exportJSON, importJSON, clearAll, loadSample, balanceOf,
   syncToGitHub, defaultRepoName
 } from '../store.js'
@@ -152,6 +152,37 @@ function saveGoal() {
   showToast('目标已保存')
 }
 
+
+/* —— 自动归类规则 —— */
+const ruleForm = ref(null)
+const ruleKind = ref('expense')
+function newRule() {
+  const cats = store.categories.filter((c) => c.kind === ruleKind.value)
+  ruleForm.value = { id: '', match: '', categoryId: cats[0]?.id || null, enabled: true }
+}
+/** 编辑时按规则目标分类回写 kind,保证下拉选项与已选分类一致 */
+function editRule(r) {
+  const kind = store.categories.find((c) => c.id === r.categoryId)?.kind
+  if (kind) ruleKind.value = kind
+  ruleForm.value = { ...r }
+}
+function delRule() {
+  if (!ruleForm.value?.id) return
+  if (!confirm('确定删除这条规则?')) return
+  removeRule(ruleForm.value.id)
+  ruleForm.value = null
+}
+function saveRule() {
+  const f = ruleForm.value
+  if (!f.match.trim()) { showToast('请填写匹配关键词'); return }
+  if (!f.categoryId) { showToast('请选择目标分类'); return }
+  upsertRule({ ...f, match: f.match.trim() })
+  ruleForm.value = null
+  showToast('规则已保存')
+}
+function ruleCategoryName(r) {
+  return store.categories.find((c) => c.id === r.categoryId)?.name || '(分类已删除)'
+}
 /* —— CSV 导出 —— */
 function downloadTxCsv() {
   const catName = (id) => store.categories.find((c) => c.id === id)?.name || ''
@@ -267,6 +298,28 @@ function doClear() {
     <button class="btn upload-block" @click="newCategory">＋ 新增分类</button>
   </section>
 
+  <!-- 自动归类规则 -->
+  <div class="sec-title">自动归类规则</div>
+  <section class="card">
+    <p class="hint">按顺序匹配商户/商品关键词,命中即归入指定分类,<strong>优先于分类自带关键词</strong>;账单导入与手动记账均生效。</p>
+    <div class="row wrap rule-kinds">
+      <button class="chip" :class="{ 'chip--on': ruleKind === 'expense' }" @click="ruleKind = 'expense'">支出分类</button>
+      <button class="chip" :class="{ 'chip--on': ruleKind === 'income' }" @click="ruleKind = 'income'">收入分类</button>
+    </div>
+    <div v-for="r in store.rules" :key="r.id" class="row-line row-line--rec">
+      <span class="row-line__body">
+        <b>「{{ r.match }}」</b>
+        <small>→ {{ ruleCategoryName(r) }}</small>
+      </span>
+      <button
+        class="btn btn--ghost btn--sm" :class="{ 'budget-carry--on': r.enabled }"
+        @click="toggleRule(r.id, !r.enabled)"
+      >{{ r.enabled ? '已启用' : '已停用' }}</button>
+      <button class="btn btn--ghost btn--sm" @click="editRule(r)">编辑</button>
+    </div>
+    <button class="btn upload-block" @click="newRule">＋ 新增规则</button>
+  </section>
+
   <!-- 预算管理 -->
   <div class="sec-title">月度预算</div>
   <section class="card">
@@ -348,7 +401,7 @@ function doClear() {
     <button class="btn btn--ico" :class="{ 'btn--on': store.settings.theme === 'light' }" @click="setTheme('light')"><AppIcon name="sun" :size="15" /> 宣纸</button>
   </section>
 
-  <p class="about serif">墨账 InkLedger · v1.5 · 静态部署 · 数据自持</p>
+  <p class="about serif">墨账 InkLedger · v1.6 · 静态部署 · 数据自持</p>
 
   <!-- 账户编辑弹层 -->
   <Teleport to="body">
@@ -371,6 +424,30 @@ function doClear() {
           </template>
           <button class="btn" @click="accForm = null">取消</button>
           <button class="btn btn--gold" @click="saveAccount">保存</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 规则编辑弹层 -->
+  <Teleport to="body">
+    <div v-if="ruleForm" class="overlay" @click.self="ruleForm = null">
+      <div class="sheet">
+        <h3 class="sheet__title">{{ ruleForm.id ? '编辑规则' : '新增规则' }}
+          <button class="sheet__close" @click="ruleForm = null">✕</button></h3>
+        <label class="field"><span class="field__label">匹配关键词(商户/商品包含即命中)</span>
+          <input v-model="ruleForm.match" class="input" placeholder="如：美团 / 滴滴 / Steam" /></label>
+        <label class="field" style="margin-top: 12px"><span class="field__label">归入分类</span>
+          <select v-model="ruleForm.categoryId" class="select">
+            <option v-for="c in store.categories.filter((c) => c.kind === ruleKind)" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select></label>
+        <div class="row row--end" style="margin-top: 18px">
+          <template v-if="ruleForm.id">
+            <button class="btn btn--danger" @click="delRule()">删除</button>
+            <span style="flex: 1"></span>
+          </template>
+          <button class="btn" @click="ruleForm = null">取消</button>
+          <button class="btn btn--gold" @click="saveRule">保存</button>
         </div>
       </div>
     </div>
@@ -528,6 +605,7 @@ function doClear() {
 
 .budget-carry { flex: none; font-size: 11px; padding: 4px 8px; color: var(--text-faint); }
 .budget-carry--on { color: var(--gold); border-color: var(--gold-line); }
+.rule-kinds { margin-bottom: 6px; }
 .row-line__icon {
   width: 36px; height: 36px; border-radius: 10px; flex: none;
   display: flex; align-items: center; justify-content: center; font-size: 17px;

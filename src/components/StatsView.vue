@@ -120,6 +120,10 @@ const netWorth = computed(() => {
   return { points, current: Math.round(current * 100) / 100 }
 })
 
+function printReport() {
+  window.print()
+}
+
 /* —— 图表 —— */
 const pieEl = ref(null)
 const lineEl = ref(null)
@@ -225,7 +229,9 @@ watch([month, year, () => store.settings.theme, netWorth, topTags, yearStats], r
 <template>
   <header class="head">
     <h1 class="head__title serif">统计</h1>
+    <button class="btn btn--ghost btn--sm head__print" @click="printReport">打印报告</button>
   </header>
+  <p class="print-only print-title serif">墨账 InkLedger · {{ monthLabel(month) }} 统计报告</p>
 
   <div class="monthnav">
     <button class="btn btn--ghost" @click="month = addMonths(month, -1)">‹</button>
@@ -311,6 +317,8 @@ watch([month, year, () => store.settings.theme, netWorth, topTags, yearStats], r
 
 <style scoped>
 .head__title { font-size: 26px; letter-spacing: 8px; margin: 0 0 14px; }
+.head { display: flex; align-items: center; justify-content: space-between; }
+.head__print { margin-bottom: 14px; }
 .monthnav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 16px; }
 .monthnav__label { font-size: 17px; letter-spacing: 3px; min-width: 110px; text-align: center; }
 

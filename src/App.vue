@@ -14,10 +14,42 @@ const editing = ref(null)      // null 关闭；{} 新建；{tx} 编辑
 const hash = location.hash
 if (hash.includes('stats')) view.value = 'stats'
 else if (hash.includes('settings')) view.value = 'settings'
-if (hash.includes('add')) editing.value = {}
+
+// URL 预填快速记账:?type=expense&amount=30&payee=xx&note=xx&tag=a,b(#add 与参数可组合)
+const prefill = readPrefillParams()
+if (prefill) {
+  editing.value = { tx: prefill }
+  // 消费后清掉查询参数,刷新时不重复弹层;hash(#add/#demo 等)保留
+  history.replaceState(null, '', location.pathname + location.hash)
+} else if (hash.includes('add')) editing.value = {}
 if (hash.includes('light') && store.settings.theme !== 'light') {
   store.settings.theme = 'light'
   document.documentElement.dataset.theme = 'light'
+}
+
+/** PWA 已在运行时点快捷方式(带 #add 导航)也能打开编辑弹层 */
+window.addEventListener('hashchange', () => {
+  if (location.hash.includes('add') && !editing.value) {
+    editing.value = { tx: readPrefillParams() || undefined }
+  }
+})
+
+function readPrefillParams() {
+  const q = new URLSearchParams(location.search)
+  const type = q.get('type')
+  const amount = q.get('amount')
+  const payee = q.get('payee')
+  const note = q.get('note')
+  const tags = q.get('tag')
+  if (!amount && !payee && !note && !tags) return null
+  const validType = ['expense', 'income', 'transfer'].includes(type) ? type : 'expense'
+  const tagList = (tags || '').split(',').map((s) => s.trim()).filter(Boolean)
+  // 不带 id:确保 TxEditor 走"新建"而非"更新";amount 保留字符串以兼容算式
+  const prefill = { type: validType, tags: tagList }
+  if (amount) prefill.amount = amount
+  if (payee) prefill.payee = payee
+  if (note) prefill.note = note
+  return prefill
 }
 const views = [
   { key: 'home', icon: 'ledger', label: '账目' },

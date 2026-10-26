@@ -77,6 +77,7 @@ function defaultState() {
     budgets: [],
     recurring: [],
     goals: [],
+    rules: [],
     settings: {
       theme: 'dark',
       github: { token: '', login: '', repo: '' },
@@ -98,6 +99,7 @@ function load() {
       budgets: Array.isArray(saved.budgets) ? saved.budgets : [],
       recurring: Array.isArray(saved.recurring) ? saved.recurring : [],
       goals: Array.isArray(saved.goals) ? saved.goals : [],
+      rules: Array.isArray(saved.rules) ? saved.rules : [],
       settings: { ...base.settings, ...saved.settings, github: { ...base.settings.github, ...saved.settings?.github } }
     }
   } catch {
@@ -115,6 +117,7 @@ export function persist() {
     budgets: store.budgets,
     recurring: store.recurring,
     goals: store.goals,
+    rules: store.rules,
     settings: store.settings
   }))
 }
@@ -175,6 +178,7 @@ export function removeCategory(id) {
   }
   store.categories = store.categories.filter((c) => c.id !== id)
   store.budgets = store.budgets.filter((b) => b.id !== id)
+  store.rules = store.rules.filter((r) => r.categoryId !== id)
   return true
 }/* —— 预算:分类月度预算(b.id 即 categoryId,amount 为每月额度) —— */
 export function setBudget(categoryId, amount) {
@@ -414,6 +418,7 @@ export function importFromText(text) {
   const res = importBill(text, {
     accounts: store.accounts,
     categories: store.categories,
+    rules: store.rules,
     existingKeys: existingSourceKeys()
   })
   for (const a of res.createdAccounts) store.accounts.push(a)
@@ -426,6 +431,7 @@ export function importFromRows(rows) {
   const res = importRows(rows, {
     accounts: store.accounts,
     categories: store.categories,
+    rules: store.rules,
     existingKeys: existingSourceKeys()
   })
   for (const a of res.createdAccounts) store.accounts.push(a)
@@ -438,7 +444,7 @@ export function exportJSON() {
   return JSON.stringify({
     app: 'inkledger', version: 1, exportedAt: new Date().toISOString(),
     txs: store.txs, accounts: store.accounts, categories: store.categories,
-    budgets: store.budgets, recurring: store.recurring, goals: store.goals
+    budgets: store.budgets, recurring: store.recurring, goals: store.goals, rules: store.rules
   }, null, 2)
 }
 export function importJSON(text) {
@@ -450,6 +456,7 @@ export function importJSON(text) {
   store.budgets = (Array.isArray(data.budgets) ? data.budgets : []).filter((b) => Number(b?.amount) > 0)
   store.recurring = Array.isArray(data.recurring) ? data.recurring : []
   store.goals = Array.isArray(data.goals) ? data.goals : []
+  store.rules = Array.isArray(data.rules) ? data.rules : []
   showToast('数据已导入')
 }
 export function clearAll() {
@@ -460,6 +467,7 @@ export function clearAll() {
   store.budgets = []
   store.recurring = []
   store.goals = []
+  store.rules = []
   showToast('已清空全部账目')
 }
 
@@ -467,7 +475,7 @@ export function clearAll() {
 export function mergeCloud(local, cloud) {
   if (!cloud) return {
     txs: local.txs, accounts: local.accounts, categories: local.categories,
-    budgets: local.budgets || [], recurring: local.recurring || [], goals: local.goals || []
+    budgets: local.budgets || [], recurring: local.recurring || [], goals: local.goals || [], rules: local.rules || []
   }
   const mergeArr = (a = [], b = []) => {
     const map = new Map()
@@ -483,7 +491,8 @@ export function mergeCloud(local, cloud) {
     categories: mergeArr(local.categories, cloud.categories),
     budgets: mergeArr(local.budgets || [], cloud.budgets || []),
     recurring: mergeArr(local.recurring || [], cloud.recurring || []),
-    goals: mergeArr(local.goals || [], cloud.goals || [])
+    goals: mergeArr(local.goals || [], cloud.goals || []),
+    rules: mergeArr(local.rules || [], cloud.rules || [])
   }
 }
 
@@ -502,7 +511,7 @@ export async function syncToGitHub() {
 
   const cloud = await readData(token, owner, repoName)
   const merged = mergeCloud(
-    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring, goals: store.goals },
+    { txs: store.txs, accounts: store.accounts, categories: store.categories, budgets: store.budgets, recurring: store.recurring, goals: store.goals, rules: store.rules },
     cloud.data
   )
   store.txs = merged.txs
@@ -511,16 +520,35 @@ export async function syncToGitHub() {
   store.budgets = merged.budgets
   store.recurring = merged.recurring
   store.goals = merged.goals
+  store.rules = merged.rules
 
   await writeData(token, owner, repoName, {
     app: 'inkledger', version: 1, syncedAt: new Date().toISOString(),
     txs: merged.txs, accounts: merged.accounts, categories: merged.categories,
-    budgets: merged.budgets, recurring: merged.recurring, goals: merged.goals
+    budgets: merged.budgets, recurring: merged.recurring, goals: merged.goals, rules: merged.rules
   }, cloud.sha)
 
   store.settings.github = { token, login: owner, repo: repoName }
   store.settings.lastSync = new Date().toISOString()
   return { login: owner, repo: repoName, created: !!cloud.data }
+}
+
+
+/* —— 自动归类规则:导入与手动记账时优先于关键词打分 —— */
+export function upsertRule(r) {
+  const i = store.rules.findIndex((x) => x.id === r.id)
+  const item = { ...r, match: String(r.match || '').trim(), updatedAt: Date.now() }
+  if (i >= 0) store.rules[i] = item
+  else store.rules.push({ ...item, id: r.id || uid(), createdAt: Date.now() })
+}
+export function removeRule(id) {
+  store.rules = store.rules.filter((r) => r.id !== id)
+}
+export function toggleRule(id, on) {
+  const r = store.rules.find((x) => x.id === id)
+  if (!r) return
+  r.enabled = !!on
+  r.updatedAt = Date.now()  // 开关变更也刷新时间戳,保证同步合并新者胜
 }
 
 /* —— 示例数据（演示用） —— */
@@ -590,5 +618,15 @@ export function loadSample() {
   // 演示储蓄目标
   upsertGoal({ id: uid(), name: '旅行基金', target: 8000, saved: 5200, deadline: addMonths(monthKey(nowDateKey()), 5) + '-01' })
   upsertGoal({ id: uid(), name: '新手机', target: 6000, saved: 1500, deadline: addMonths(monthKey(nowDateKey()), 8) + '-01' })
+  // 演示自动归类规则
+  const demoRules = [
+    ['美团', '餐饮'], ['滴滴', '交通出行'], ['盒马', '水果生鲜'], ['steam', '娱乐影音']
+  ]
+  for (const [match, catName] of demoRules) {
+    upsertRule({
+      id: uid(), match, enabled: true,
+      categoryId: store.categories.find((c) => c.name === catName)?.id || null
+    })
+  }
   showToast(`已生成 ${txs.length} 笔示例账目，可在设置中一键清空`)
 }

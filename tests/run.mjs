@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { importBill, importRows, parseBill, detectBill } from '../src/lib/importer.js'
+import { applyRules } from '../src/lib/rules.js'
 import { parseCSV } from '../src/lib/csv.js'
 import { isXlsx, parseXlsxRows } from '../src/lib/xlsx.js'
 import { monthDistance, envelopeOf } from '../src/lib/budget.js'
@@ -229,6 +230,98 @@ const cyPts = netWorthSeries(
 ok(cyPts.length === 4 && cyPts.map((p) => p.month).join() === '2025-11,2025-12,2026-01,2026-02',
   `跨年 4 点且月份连续（实际 ${cyPts.map((p) => p.month).join()}）`)
 ok(cyPts.every((p) => p.total === 350), `每月 100+250=350 结转（实际 ${cyPts.map((p) => p.total).join()}）`)
+
+console.log('\n[rules.applyRules]')
+ok(applyRules('美团平台商户', '午餐', '商户消费', 'expense',
+  [{ id: 'ar1', match: '美团', categoryId: 'c2', enabled: false }], categories) === null,
+  'enabled=false 的规则跳过（即使关键词命中）')
+ok(applyRules('美团平台商户', '', '', 'expense',
+  [{ id: 'ar2', match: '美团', categoryId: 'c2', enabled: true }], categories)?.id === 'c2',
+  'match 命中 payee')
+ok(applyRules('某商户', '美团外卖', '', 'expense',
+  [{ id: 'ar3', match: '美团', categoryId: 'c2', enabled: true }], categories)?.id === 'c2',
+  'match 命中 item')
+ok(applyRules('某商户', '', '商户消费-美团', 'expense',
+  [{ id: 'ar4', match: '商户消费', categoryId: 'c2', enabled: true }], categories)?.id === 'c2',
+  'match 命中 type')
+ok(applyRules('美团平台商户', '', '', 'expense',
+  [{ id: 'ar5', match: '美团', categoryId: 'deleted-cat', enabled: true }], categories) === null,
+  '悬空 categoryId（分类已删）→ null')
+ok(applyRules('美团平台商户', '', '', 'income',
+  [{ id: 'ar6', match: '美团', categoryId: 'c2', enabled: true }], categories) === null,
+  'kind 不符（规则指向支出分类，账单 income）→ null')
+ok(applyRules('美团平台商户', '', '', 'expense', [
+  { id: 'ar7', match: '美团', categoryId: 'c2', enabled: true },
+  { id: 'ar8', match: '美团', categoryId: 'c3', enabled: true }
+], categories)?.id === 'c2',
+  '多条命中：第一条（c2）胜出而非后一条')
+ok(applyRules('美团平台商户', '', '', 'expense', [
+  { id: 'ar9', match: '美团', categoryId: 'i1', enabled: true }, // 命中文案但 i1 为收入分类，kind 校验不过
+  { id: 'ar10', match: '美团', categoryId: 'c3', enabled: true }
+], categories)?.id === 'c3',
+  '前一条 kind 校验不过视同未命中，顺延到后一条（c3）')
+ok(applyRules('美团平台商户', '', '', 'expense',
+  [{ id: 'ar11', match: '   ', categoryId: 'c2', enabled: true }], categories) === null,
+  '空白 match 的启用规则不命中任何文本')
+
+console.log('\n[importRows × 自定义规则]')
+// 最小微信账单（表头 + 2 笔：美团支出 / 张三红包收入）；支付方式均为零钱 → 复用 acc-wechat
+const wechatMini = parseCSV([
+  '交易时间,交易类型,交易对方,商品,收/支,金额(元),支付方式,当前状态,交易单号,商户单号,备注',
+  '2026-10-01 12:00:00,商户消费,美团平台商户,午餐-外卖,支出,¥35.50,零钱,支付成功,TR001,,',
+  '2026-10-02 19:00:00,微信红包,张三,,收入,¥88.88,零钱,已存入零钱,TR002,,'
+].join('\n'))
+// 最小支付宝账单（1 笔饿了么支出；支付宝余额 → 复用 acc-alipay）
+const alipayMini = parseCSV([
+  '交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注',
+  '2026-10-03 12:00:00,餐饮美食,饿了么,e@x.com,午餐外卖,支出,28.00,支付宝余额,交易成功,TR101,,'
+].join('\n'))
+
+// 老调用方兼容：不传 ctx.rules 不抛错，行为与关键词打分一致
+let noRulesErr = null
+let rNoRules = null
+try {
+  rNoRules = importRows(wechatMini, { accounts, categories, existingKeys: new Set() })
+} catch (e) { noRulesErr = e }
+ok(noRulesErr === null, '不传 ctx.rules：不抛错')
+ok(rNoRules?.txs.length === 2, `不传 rules：2 笔有效（实际 ${rNoRules?.txs?.length}）`)
+ok(rNoRules?.txs.find((t) => t.payee === '美团平台商户')?.categoryId === 'c1',
+  '不传 rules：美团按关键词 → 餐饮 c1')
+ok(rNoRules?.txs.find((t) => t.payee === '张三')?.categoryId === 'i1',
+  '不传 rules：红包按关键词 → 收到的红包 i1')
+
+// 规则优先于关键词：关键词「美团」本会命中 c1，规则改判 c2
+const rPrio = importRows(wechatMini, {
+  accounts, categories, existingKeys: new Set(),
+  rules: [{ id: 'pr1', match: '美团', categoryId: 'c2', enabled: true }]
+})
+ok(rPrio.txs.find((t) => t.payee === '美团平台商户')?.categoryId === 'c2',
+  '微信：规则命中商户名 → c2（关键词本会判 c1，规则优先）')
+const rPrioAli = importRows(alipayMini, {
+  accounts, categories, existingKeys: new Set(),
+  rules: [{ id: 'pr2', match: '饿了么', categoryId: 'c3', enabled: true }]
+})
+ok(rPrioAli.txs.find((t) => t.payee === '饿了么')?.categoryId === 'c3',
+  '支付宝：饿了么规则改判 c3（关键词本会判 c1）')
+
+// 规则 kind 与账单收/支方向不符：不命中，回退关键词
+const rKindMiss = importRows(wechatMini, {
+  accounts, categories, existingKeys: new Set(),
+  rules: [{ id: 'km1', match: '美团', categoryId: 'i1', enabled: true }] // i1 为收入分类，账单为支出
+})
+ok(rKindMiss.txs.find((t) => t.payee === '美团平台商户')?.categoryId === 'c1',
+  '规则指向收入分类而账单为支出 → 回退关键词 c1')
+
+// 空 match 的启用规则不吞掉所有账单
+const rEmpty = importRows(wechatMini, {
+  accounts, categories, existingKeys: new Set(),
+  rules: [{ id: 'em1', match: '', categoryId: 'c2', enabled: true }]
+})
+ok(rEmpty.txs.length === 2, `空 match 规则：2 笔照常导入（实际 ${rEmpty.txs.length}）`)
+ok(rEmpty.txs.find((t) => t.payee === '美团平台商户')?.categoryId === 'c1',
+  '空 match 规则：美团仍按关键词 → c1')
+ok(rEmpty.txs.find((t) => t.payee === '张三')?.categoryId === 'i1',
+  '空 match 规则：红包仍按关键词 → i1')
 
 if (failed) {
   console.error(`\n✗ ${failed} 个断言失败\n`)

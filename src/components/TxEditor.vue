@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { store, addTx, updateTx, removeTx, showToast, allTags } from '../store.js'
 import { fmtMoney, toLocalISO } from '../lib/format.js'
+import { applyRules } from '../lib/rules.js'
 import DataIcon from './DataIcon.vue'
 
 const props = defineProps({ init: Object })
@@ -37,6 +38,16 @@ const catsOfKind = computed(() =>
 )
 
 watch(() => form.value.type, () => { form.value.categoryId = null })
+
+/* 智能归类:用户未手动选分类时,按 自定义规则 → 分类关键词 自动填入;已选/转账不覆盖 */
+watch(() => form.value.payee, (payee) => {
+  if (!payee || form.value.categoryId || form.value.type === 'transfer') return
+  const kind = form.value.type
+  // 第三参 type 传空串:手动记账无账单"交易类型"字段,规则按商户/备注匹配即可
+  const cat = applyRules(payee, form.value.note, '', kind, store.rules, store.categories)
+    || store.categories.find((c) => c.kind === kind && c.keywords?.some((kw) => kw && payee.toLowerCase().includes(kw.toLowerCase())))
+  if (cat) form.value.categoryId = cat.id
+}, { immediate: true })  // immediate:URL 预填 payee 打开弹层时也能智能归类
 
 function addTag() {
   const t = tagInput.value.trim()

@@ -4,6 +4,7 @@
  */
 import { parseCSV } from './csv.js'
 import { uid } from './format.js'
+import { applyRules } from './rules.js'
 
 const idxOf = (headers, ...names) => {
   for (const n of names) {
@@ -161,7 +162,7 @@ function normTime(t) {
 
 /**
  * 导入主入口（CSV 文本）
- * @param ctx {accounts, categories, existingKeys} 当前数据上下文
+ * @param ctx {accounts, categories, existingKeys, rules?} 当前数据上下文;rules 为用户自定义归类规则,优先于关键词打分
  * @returns {txs, createdAccounts, skipped, platform}
  */
 export function importBill(text, ctx) {
@@ -193,7 +194,9 @@ export function importRows(rows, ctx) {
     const { account, created } = resolveAccount(r.method, accounts)
     if (created) { accounts.push(account); createdAccounts.push(account) }
 
-    const cat = autoCategory(r.payee, r.item, r.type, kind, ctx.categories)
+    // 用户规则优先,未命中再走关键词打分
+    const cat = applyRules(r.payee, r.item, r.type, kind, ctx.rules, ctx.categories)
+      || autoCategory(r.payee, r.item, r.type, kind, ctx.categories)
     const refunded = r.status.includes('退款')
 
     txs.push({

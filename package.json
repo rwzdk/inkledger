@@ -1,7 +1,7 @@
 {
   "name": "inkledger",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "墨账 InkLedger —— 纯静态、数据自持的个人记账 PWA，支持微信/支付宝账单导入与 GitHub 同步",
   "type": "module",
   "scripts": {

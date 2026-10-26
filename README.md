@@ -7,7 +7,7 @@
 PWA · 微信 / 支付宝账单导入 · GitHub 私有仓库同步 · 自动归类
 
 [![GitHub stars](https://img.shields.io/github/stars/rwzdk/inkledger?style=flat-square&color=gold)](https://github.com/rwzdk/inkledger/stargazers)
-[![version](https://img.shields.io/badge/version-1.5.0-gold?style=flat-square)](./README.md#-更新日志)
+[![version](https://img.shields.io/badge/version-1.6.0-gold?style=flat-square)](./README.md#-更新日志)
 [![License: MIT](https://img.shields.io/badge/License-MIT-gold?style=flat-square)](./LICENSE)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -104,6 +104,13 @@ Token 与数据都不会离开你的浏览器到任何第三方服务器（仅 G
 欢迎 Issue 与 PR。提交前请跑 `pnpm test && pnpm build`。
 
 ## 📝 更新日志
+
+### v1.6.0（2026-10-26）
+
+- **feat**：**自定义自动归类规则**（参考 Firefly III 规则引擎）——按顺序匹配商户/商品关键词,命中即归入指定分类,优先于分类自带关键词;账单导入与手动记一笔均生效,记一笔输入商户时未选分类会智能预选
+- **feat**：统计页**一键打印报告**——隐藏交互组件,界面文字自动切换浅色打印配色(图表按当前主题原样输出)
+- **feat**：**PWA 快捷方式 + URL 快速记账**——长按应用图标直达「记一笔」;支持 `?type=expense&amount=30&payee=xx&tag=a,b` 参数预填,可配合系统快捷指令秒记
+- 规则数据随 GitHub 同步与 JSON 备份;全部纯前端实现
 
 ### v1.5.0（2026-10-26）
 

@@ -381,3 +381,27 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* —— 打印:隐藏交互组件,深色主题强制浅色输出(浏览器默认不打印背景,近白文字会不可读) —— */
+.print-only { display: none; }
+
+@media print {
+  :root[data-theme='dark'] {
+    color-scheme: light;
+    --bg: #f6f3ec;
+    --bg-veil: #ffffff;
+    --card: #ffffff;
+    --card-2: #f3efe5;
+    --line: #ddd6c6;
+    --line-strong: #c9c0ac;
+    --text: #2a2620;
+    --text-dim: #6b665c;
+    --text-faint: #99938a;
+  }
+  body { background: #fff !important; }
+  .sidenav, .tabbar, .btn, .toast, .overlay, .monthnav, .search-wrap, .chips, .year-chips { display: none !important; }
+  .shell { margin: 0 !important; max-width: 100% !important; padding: 0 !important; }
+  .card { break-inside: avoid; box-shadow: none; }
+  .print-only { display: block; }
+  .print-title { font-size: 20px; letter-spacing: 4px; text-align: center; margin: 0 0 18px; color: #2a2620; }
+}
